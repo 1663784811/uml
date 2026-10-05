@@ -153,7 +153,8 @@ export class InteractionController {
       // 节点路径的 draw 由 syncLayouts/setDropTarget 负责，这里不再补画
       this.store.syncLayouts()
       this.store.setDropTarget(this.moved ? this.dropTarget() : null)
-    } else {
+    } else if (this.mode === 'pan') {
+      // 只右键拖进入 pan 模式；deselect（左键点空白）走 else 分支会误平移
       // pan 没有内部 draw，平移后必须自己刷
       this.store.pan.x = this.start.pan.x + (e.clientX - this.start.cx)
       this.store.pan.y = this.start.pan.y + (e.clientY - this.start.cy)
@@ -213,13 +214,11 @@ export class InteractionController {
     this.store.zoomAt(e.clientX, e.clientY, factor)
   }
 
+  // 双击只选中,不做聚焦居中：自动平移/提 zoom 会让画布跳动
   onDblClick(e) {
     const p = this.store.toWorld(e.clientX, e.clientY)
     const hit = this.store.hitTest(p.x, p.y)
-    if (hit) {
-      this.store.select(hit.node, false)
-      this.store.focusNode(hit.node)
-    }
+    if (hit) this.store.select(hit.node, false)
   }
 
   attach() {

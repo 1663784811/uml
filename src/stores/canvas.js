@@ -449,8 +449,7 @@ export const useCanvasStore = defineStore('canvas', () => {
     return true
   }
 
-  // 按节点居中，不改变缩放（不足 100% 时提到 100%）。
-  // 从 interaction.js 的双击逻辑提取，双击聚焦与图层面板定位共用
+  // 按节点居中，不改变缩放（不足 100% 时提到 100%）。图层面板点击行定位时用
   function focusNode(node) {
     const z = Math.min(2, Math.max(zoom.value, 1))
     zoom.value = z
