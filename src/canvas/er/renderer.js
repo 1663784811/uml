@@ -1,5 +1,5 @@
 // 纯绘制：只读传入的状态对象，不持有状态、不依赖 store 实例。
-// 拖拽、缩放、框选等每一次变更都会调用 Renderer.draw()。
+// 拖拽、缩放等每一次变更都会调用 Renderer.draw()。
 
 import { edgeBetween } from './geometry.js'
 import {
@@ -61,7 +61,7 @@ export class Renderer {
 
   /**
    * 画一帧
-   * @param state {dpr, pan:{x,y}, zoom, selection:Set, hovered, marquee, dropTarget, nodes:[]}
+   * @param state {dpr, pan:{x,y}, zoom, selection:Set, hovered, dropTarget, nodes:[]}
    * @param cssW 视口 CSS 宽度
    * @param cssH 视口 CSS 高度
    */

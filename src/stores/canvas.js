@@ -226,11 +226,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     if (node) selection.add(node)
   }
 
-  function selectMany(list) {
-    selection.clear()
-    for (const n of list) selection.add(n)
-  }
-
   function deleteSelected() {
     if (!selection.size) return false
     // 分组（layout）像 PS 里的"取消编组"：只删框本身，成员散到顶层；
@@ -584,7 +579,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     toWorld,
     hitTest,
     select,
-    selectMany,
     selectionGroup,
     parentOf,
     subtreeOf,

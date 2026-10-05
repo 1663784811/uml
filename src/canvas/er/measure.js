@@ -13,8 +13,8 @@ export const COL_GAP = 10
 export const PAD_L = 8
 export const PAD_R = 8
 
-// 圆角半径：图层框 > 表体 > 框选/图例 > 徽标
-export const RADIUS = { table: 10, layout: 12, marquee: 6, legend: 6, badge: 3 }
+// 圆角半径：图层框 > 表体 > 图例 > 徽标
+export const RADIUS = { table: 10, layout: 12, legend: 6, badge: 3 }
 
 // 图层：顶部标签留白（名称 + 描述各占一行，见 renderer 的 drawLayout）
 export const LABEL_H = 44
@@ -205,7 +205,7 @@ export function syncLayoutBounds(nodes) {
 export function sizeOf(node, nodes) {
   if (!node) return { w: 0, h: 0, rows: 0 }
   if (node.type === 'table') {
-    // 按字段内容做记忆化：拖拽/框选期间 sizeOf 会被反复调用，避免每次重算 measureText
+    // 按字段内容做记忆化：拖拽期间 sizeOf 会被反复调用，避免每次重算 measureText
     const key = (node.fields || [])
       .map((f) => `${f && f.name}|${f && f.type}|${describeOf(f)}`)
       .join('§')

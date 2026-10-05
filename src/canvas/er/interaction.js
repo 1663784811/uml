@@ -1,4 +1,4 @@
-// 画布交互控制器：节点拖拽、背景框选/平移、滚轮缩放、双击聚焦。
+// 画布交互控制器：节点拖拽、背景平移、滚轮缩放、双击聚焦。
 // 不直接碰 DOM（除光标），只改 store 状态并调用 store.draw()。
 
 const SNAP = 5
@@ -102,7 +102,7 @@ export class InteractionController {
       return
     }
 
-    // 左键点空白 = 取消选区（框选已移除；平移走右键）
+    // 左键点空白 = 取消选区；平移走右键
     this.mode = 'deselect'
     this.store.select(null, false)
     this.store.draw()
@@ -150,14 +150,16 @@ export class InteractionController {
         n.y = Math.round((o.y + dy) / (snap || 1)) * (snap || 1)
       }
       // 拖动期间实时重算图层框，否则框停在原地视觉断裂
+      // 节点路径的 draw 由 syncLayouts/setDropTarget 负责，这里不再补画
       this.store.syncLayouts()
       this.store.setDropTarget(this.moved ? this.dropTarget() : null)
-    } else if (this.mode === 'pan') {
+    } else {
+      // pan 没有内部 draw，平移后必须自己刷
       this.store.pan.x = this.start.pan.x + (e.clientX - this.start.cx)
       this.store.pan.y = this.start.pan.y + (e.clientY - this.start.cy)
       this.canvas.style.cursor = 'grabbing'
+      this.store.draw()
     }
-    this.store.draw()
   }
 
   // 离开画布时清掉悬停，否则最后一行会一直停在高亮态
