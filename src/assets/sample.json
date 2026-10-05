@@ -59,6 +59,31 @@
     "fontColor": "#000000"
   },
   {
+    "type": "table",
+    "name": "t_admin",
+    "describe": "管理员表",
+    "fields": [
+      {
+        "name": "id",
+        "describe": "主键ID",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "name",
+        "describe": "部门",
+        "type": "varchar(50)",
+        "nullable": false
+      }
+    ],
+    "x": 100,
+    "y": 100,
+    "w": 100,
+    "h": 100,
+    "bgColor": "#999999",
+    "fontColor": "#000000"
+  },
+  {
     "type": "layout",
     "name": "layout",
     "describe": "分组",

@@ -49,7 +49,7 @@
         <span><i>悬停</i>字段详情</span>
       </div>
 
-      <ErLayers :store="store" />
+      <ErLayers />
 
       <div class="er-zoomer">
         <button title="缩小" @click="store.zoomTo(store.zoom - 0.15)">−</button>
@@ -63,7 +63,7 @@
 <script setup>
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { useCanvasStore } from '../stores/canvas.js'
-import { createInteractions } from '../canvas/er/interaction.js'
+import { InteractionController } from '../canvas/er/interaction.js'
 import sampleData from '../assets/sample.json'
 import ErLayers from '../components/ErLayers.vue'
 
@@ -141,7 +141,7 @@ function init() {
   const ctx = canvas.getContext('2d')
   // bind 内会同步写入初始视口尺寸，load 里的 centerView 才有锚点
   store.bind(ctx, stageRef.value)
-  act = createInteractions(store, canvas)
+  act = new InteractionController(store, canvas)
   act.attach()
   window.addEventListener('keydown', onKey)
   // 不传 fit：初始 100% + 居中，缩放交给用户（滚轮 / 适应按钮）

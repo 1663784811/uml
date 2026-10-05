@@ -12,6 +12,7 @@ import {
   membersOf, syncLayoutBounds,
 } from '../canvas/er/measure.js'
 import { drawScene } from '../canvas/er/renderer.js'
+import { Tree } from '../canvas/er/tree.js'
 
 const PAD_X = 24
 const PAD_Y = 20
@@ -20,11 +21,13 @@ const MAX_ZOOM = 2.5
 
 export const useCanvasStore = defineStore('canvas', () => {
   const nodes = reactive([])
+  // 结构不变量的宿主：tree 与 nodes 共享底层数组（reactive 代理的原始数组），
+  // 因此 tree.nodes[i] = x / tree.nodes.push(n) 与对 nodes 的操作等价
+  const tree = new Tree(nodes)
   const selection = reactive(new Set())
   const hovered = ref(null)
   // 指针相对 stage 的位置，用于悬停浮层定位
   const hoverPos = ref({ x: 0, y: 0 })
-  const marquee = ref(null)
   // 隐藏的节点：用 Set 而不是给节点加字段，保证 serialize 导出的数据与输入同构
   const hidden = reactive(new Set())
   const pan = reactive({ x: 0, y: 0 })
@@ -48,7 +51,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     nodes.length = 0
     selection.clear()
     hovered.value = null
-    marquee.value = null
     hidden.clear()
   }
 
@@ -71,89 +73,17 @@ export const useCanvasStore = defineStore('canvas', () => {
     return false
   }
 
-  // 把节点数组按 parent 拆成顶层列表 + 每个父级下的子节点列表
-  function structureOf() {
-    const top = []
-    const kids = new Map()
-    for (const n of nodes) {
-      if (!n) continue
-      const p = n.parent || null
-      if (p == null) top.push(n)
-      else {
-        let l = kids.get(p)
-        if (!l) kids.set(p, (l = []))
-        l.push(n)
-      }
-    }
-    return { top, kids }
-  }
-
-  // 深度优先写回：图层排在自己成员之前，成员永远画在所属图层框之上
-  function rewrite(top, kids) {
-    const out = []
-    const seen = new Set()
-    const walk = (list) => {
-      for (const n of list) {
-        if (!n || seen.has(n)) continue
-        seen.add(n)
-        out.push(n)
-        if (n.type === 'layout') walk(kids.get(n.name) || [])
-      }
-    }
-    walk(top)
-    // parent 指向已不存在的图层时兜底，否则节点会从画布上消失
-    for (const n of nodes) if (!seen.has(n)) { seen.add(n); out.push(n) }
-    for (let i = 0; i < out.length; i++) nodes[i] = out[i]
-    nodes.length = out.length
-  }
-
-  // 节点及其全部后代（含自身）；非图层只有自己
-  function subtreeOf(node) {
-    const out = [node]
-    const seen = new Set(out)
-    const stack = node.type === 'layout' ? nodes.filter((n) => n && n.parent === node.name) : []
-    while (stack.length) {
-      const n = stack.pop()
-      if (seen.has(n)) continue
-      seen.add(n)
-      out.push(n)
-      if (n.type === 'layout') {
-        for (const c of nodes.filter((x) => x && x.parent === n.name)) stack.push(c)
-      }
-    }
-    return out
-  }
-
-  function inSubtree(node, items) {
-    return subtreeOf(node).some((n) => items.includes(n))
-  }
-
-  function memberCount(node) {
-    return node && node.type === 'layout' ? membersOf(nodes, node).length : 0
-  }
-
-  // 拖动用的选区：图层展开成整棵子树，成员跟着一起走
-  function selectionGroup() {
-    const out = []
-    const seen = new Set()
-    for (const n of nodes) {
-      if (!selection.has(n)) continue
-      for (const m of subtreeOf(n)) {
-        if (seen.has(m)) continue
-        seen.add(m)
-        out.push(m)
-      }
-    }
-    return out
-  }
-
-  // 父级：只认显式的 parent 字段。
-  // 不按包围关系兜底：拖表进图层时表还没改 parent，几何判定会让它「看起来是成员」，
-  // selectionGroup/roots 就把拖拽主体当成别人的成员，dropTarget 永远返回 null
-  function parentOf(node) {
-    if (!node || !node.parent) return null
-    return nodes.find((n) => n.name === node.parent) || null
-  }
+  // 树结构不变量都委托给 tree：结构 -> 树形表示、DFS 写回、子树遍历、父级查找。
+  // tree 与 nodes 共享底层数组，直接原地改写，不需要额外同步。
+  const structureOf = () => tree.structureOf()
+  const rewrite = (top, kids) => tree.rewrite(top, kids)
+  const rewriteOf = () => tree.rewriteOf()
+  const subtreeOf = (node) => tree.subtreeOf(node)
+  const inSubtree = (node, items) => tree.inSubtree(node, items)
+  const memberCount = (node) => tree.memberCount(node)
+  const selectionGroup = () => tree.selectionGroup(selection)
+  const parentOf = (node) => tree.parentOf(node)
+  const nextName = (base, list) => tree.nextName(base, list)
 
   /**
    * 载入数据（数组格式，见 数据加载格式.md）。
@@ -210,7 +140,6 @@ export const useCanvasStore = defineStore('canvas', () => {
         zoom: zoom.value,
         selection,
         hovered: hovered.value,
-        marquee: marquee.value,
         dropTarget,
         nodes: visibleNodes(),
       },
@@ -298,16 +227,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     for (const n of list) selection.add(n)
   }
 
-  // 框选：矩形与节点包围盒相交即选中。隐藏节点不参与框选
-  function marqueeSelect(x, y, w, h) {
-    const x0 = Math.min(x, x + w)
-    const y0 = Math.min(y, y + h)
-    const x1 = Math.max(x, x + w)
-    const y1 = Math.max(y, y + h)
-    selectMany(
-      visibleNodes().filter((n) => n.x < x1 && n.x + n.w > x0 && n.y < y1 && n.y + n.h > y0),
-    )
-  }
 
   function deleteSelected() {
     if (!selection.size) return false
@@ -381,12 +300,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     draw()
   }
 
-  function resetView() {
-    pan.x = 0
-    pan.y = 0
-    zoom.value = 1
-    draw()
-  }
 
   // 按节点包围盒居中，不缩放。初始视图用它：100% 是默认值，
   // 缩放只留给用户主动操作（滚轮 / 按钮），不该由载入决定。
@@ -481,20 +394,20 @@ export const useCanvasStore = defineStore('canvas', () => {
   function moveLayer(node, dir) {
     const i = nodes.indexOf(node)
     if (i < 0) return
-    const tree = subtreeOf(node)
+    const subtree = subtreeOf(node)
     let j
     if (dir === 'front' || dir === 'back') {
-      j = dir === 'front' ? nodes.length - tree.length : 0
+      j = dir === 'front' ? nodes.length - subtree.length : 0
     } else {
       const k = dir === 'forward' ? i + 1 : i - 1
       if (k < 0 || k >= nodes.length) return
       if ((nodes[k].parent || null) !== (node.parent || null)) return
       // 后移越过的是自己子树里的成员，等于没动
-      if (dir === 'forward' && tree.includes(nodes[k])) return
+      if (dir === 'forward' && subtree.includes(nodes[k])) return
       j = k
     }
-    if (j === i || j === i - tree.length + 1) return
-    const block = nodes.splice(i, tree.length)
+    if (j === i || j === i - subtree.length + 1) return
+    const block = nodes.splice(i, subtree.length)
     nodes.splice(j, 0, ...block)
     draw()
   }
@@ -551,19 +464,7 @@ export const useCanvasStore = defineStore('canvas', () => {
 
   // ---------- 增删移动：树的写入操作 ----------
 
-  // 名称唯一化：图层与表共用命名空间，parent 靠 name 匹配，撞名会让成员挂错人
-  function nextName(base, list) {
-    const taken = new Set((list || nodes).map((n) => n.name))
-    const b = String(base || 'untitled')
-    if (!taken.has(b)) return b
-    let k = 2
-    while (taken.has(`${b}_${k}`)) k++
-    return `${b}_${k}`
-  }
-
-  function countMembers(parent) {
-    return parent ? nodes.filter((n) => n.parent === parent.name).length : 0
-  }
+  // 名称唯一化委托给 tree；countMembers 是 memberCount 的重复实现，直接删除。
 
   // 新建表。放在已有内容下方（图层内则在其内部），避免和已有节点叠在一起
   function addTable(parent, at) {
@@ -669,11 +570,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     return true
   }
 
-  // 按当前 parent 关系重排数组
-  function rewriteOf() {
-    const { top, kids } = structureOf()
-    rewrite(top, kids)
-  }
 
   // 由 placement 写入：渲染层据此把目标图层描成实线
   function setDropTarget(n) {
@@ -687,7 +583,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     selection,
     hovered,
     hoverPos,
-    marquee,
     hidden,
     pan,
     zoom,
@@ -703,7 +598,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     hitTest,
     select,
     selectMany,
-    marqueeSelect,
     selectionGroup,
     parentOf,
     subtreeOf,
@@ -719,10 +613,8 @@ export const useCanvasStore = defineStore('canvas', () => {
     rename,
     reorder,
     setDropTarget,
-    syncLayoutBounds,
     zoomAt,
     zoomTo,
-    resetView,
     fitView,
     serialize,
   }

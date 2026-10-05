@@ -1,133 +1,21 @@
 <script setup>
-import { h, ref, computed } from 'vue'
+import { h, reactive, onBeforeUnmount } from 'vue'
+import { useCanvasStore } from '../stores/canvas.js'
+import { LayerPanelController } from './LayerPanelController.js'
 
-const props = defineProps({
-  store: { type: Object, required: true },
+const store = useCanvasStore()
+// 面板本地状态：拖拽、改名、落点提示。controller 与模板共用同一个 reactive 对象
+const state = reactive({
+  dragging: null,
+  editing: null,
+  editText: '',
+  dropHint: null,
 })
-const store = props.store
+const ctrl = new LayerPanelController(store, state)
 
-// 被拖拽的行
-const dragging = ref(null)
-// 正在改名的行
-const editing = ref(null)
-const editText = ref('')
-// 落点指示：{target, pos}，pos ∈ 'before' | 'after' | 'into'
-// PS 里鼠标在行上下边缘 = 换层序，在行中间 = 收编成成员
-const dropHint = ref(null)
-
-function onDragStart(n, e) {
-  dragging.value = n
-  store.select(n, false)
-  e.dataTransfer.effectAllowed = 'move'
-  e.dataTransfer.setData('text/plain', String(n.name))
-}
-
-function onDragEnd() {
-  dragging.value = null
-  dropHint.value = null
-}
-
-// 鼠标在行内的相对位置决定落点：前 25% = before，后 25% = after，
-// 中间 50% = into（仅分组有效）。表格行只做 before/after。
-function dropPosFor(target, e) {
-  const rect = e.currentTarget.getBoundingClientRect()
-  const y = (e.clientY - rect.top) / rect.height
-  const isGroup = target.type === 'layout'
-  if (y < 0.25) return 'before'
-  if (y > 0.75) return 'after'
-  return isGroup ? 'into' : 'after'
-}
-
-function onRowDragOver(n, e) {
-  const d = dragging.value
-  if (!d || d === n) return
-  // 不允许拖到自己后代里
-  if (store.subtreeOf(d).includes(n)) return
-  e.preventDefault()
-  e.dataTransfer.dropEffect = 'move'
-  // 阻止冒泡：外层 aside 也绑了 dragover，不能让它把 dragging 清掉
-  e.stopPropagation()
-  const pos = dropPosFor(n, e)
-  // 只有变化才写入，避免每帧 reactivity
-  const cur = dropHint.value
-  if (!cur || cur.target !== n || cur.pos !== pos) {
-    dropHint.value = { target: n, pos }
-  }
-}
-
-function onRowDrop(n, e) {
-  e.preventDefault()
-  e.stopPropagation()
-  const d = dragging.value
-  onDragEnd()
-  if (!d || d === n) return
-  const pos = dropPosFor(n, e)
-  if (pos === 'into' && n.type === 'layout') {
-    if (d.type === 'table') store.nestInto(n, [d])
-    else store.nestInto(n, store.subtreeOf(d))
-  } else {
-    store.reorder(d, n, pos)
-  }
-}
-
-// 放到顶层（面板空白区）= 退回顶层
-// 只作为 drop 处理，dragover 时只 preventDefault 让 drop 生效，不清 dragging
-function onRootDragOver(e) {
-  if (!dragging.value) return
-  e.preventDefault()
-  e.dataTransfer.dropEffect = 'move'
-}
-
-function onRootDrop(e) {
-  e.preventDefault()
-  const n = dragging.value
-  onDragEnd()
-  if (!n || n.type !== 'table') return
-  store.detachToParent([n])
-}
-
-function onRow(n, e) {
-  store.select(n, e.shiftKey)
-  store.focusNode(n)
-}
-
-// 改名：回车确认，Esc 取消，点击行外也取消
-function startEdit(n, value) {
-  editing.value = n
-  editText.value = value
-}
-
-function commitEdit() {
-  const n = editing.value
-  if (n) store.rename(n, editText.value)
-  editing.value = null
-}
-
-function cancelEdit() {
-  editing.value = null
-}
-
-// 行悬浮同步到画布：边框变蓝但 row=-1 所以不弹字段详情
-function onEnter(n) {
-  if (store.hidden.has(n)) return
-  store.hovered = { node: n, row: -1 }
-}
-
-// 必须清掉：鼠标离开面板若停在画布外，边框高亮会一直残留
-function onLeave() {
-  store.hovered = null
-  store.draw()
-}
-
-function onRemove(n) {
-  store.select(n, false)
-  store.deleteSelected()
-}
-
-function sub(n) {
-  if (n.type !== 'layout') return `${(n.fields || []).length} 字段`
-  return `${store.memberCount(n)} 个成员`
-}
+onBeforeUnmount(() => {
+  if (state.dragging) ctrl.onDragEnd()
+})
 
 // 递归渲染：模板里嵌套 v-for 拿不到父层缩进，所以用一个递归组件
 const GroupList = {
@@ -138,8 +26,8 @@ const GroupList = {
       const children = []
       for (const n of p.nodes) {
         const isGroup = n.type === 'layout'
-        const isEditing = editing.value === n
-        const hint = dropHint.value
+        const isEditing = state.editing === n
+        const hint = state.dropHint
         const isHint = hint && hint.target === n
         children.push(h('div', {
           class: ['row', {
@@ -153,32 +41,32 @@ const GroupList = {
           style: { marginLeft: `${p.depth * 14}px` },
           // 改名中不允许拖拽
           draggable: isEditing ? 'false' : 'true',
-          onDragstart: (e) => onDragStart(n, e),
-          onDragend: onDragEnd,
-          onClick: (e) => { if (!isEditing) onRow(n, e) },
-          onDblClick: (e) => { e.stopPropagation(); startEdit(n, n.name) },
-          onDragover: (e) => onRowDragOver(n, e),
-          onDrop: (e) => onRowDrop(n, e),
-          onMouseenter: () => onEnter(n),
-          onMouseleave: onLeave,
+          onDragstart: (e) => ctrl.onDragStart(n, e),
+          onDragend: () => ctrl.onDragEnd(),
+          onClick: (e) => { if (!isEditing) ctrl.onRow(n, e) },
+          onDblClick: (e) => { e.stopPropagation(); ctrl.startEdit(n, n.name) },
+          onDragover: (e) => ctrl.onRowDragOver(n, e),
+          onDrop: (e) => ctrl.onRowDrop(n, e),
+          onMouseenter: () => ctrl.onEnter(n),
+          onMouseleave: () => ctrl.onLeave(),
         }, [
           h('span', { class: 'caret' }, isGroup ? '▣' : '▤'),
           isEditing
             ? h('input', {
                 class: 'rename',
-                value: editText.value,
-                onInput: (e) => { editText.value = e.target.value },
+                value: state.editText,
+                onInput: (e) => { state.editText = e.target.value },
                 onKeydown: (e) => {
-                  if (e.key === 'Enter') { e.preventDefault(); commitEdit() }
-                  else if (e.key === 'Escape') { e.preventDefault(); cancelEdit() }
+                  if (e.key === 'Enter') { e.preventDefault(); ctrl.commitEdit() }
+                  else if (e.key === 'Escape') { e.preventDefault(); ctrl.cancelEdit() }
                   e.stopPropagation()
                 },
-                onBlur: commitEdit,
+                onBlur: () => ctrl.commitEdit(),
                 onClick: (e) => e.stopPropagation(),
               })
             : h('div', { class: 'text' }, [
                 h('span', { class: 'name' }, n.name),
-                h('span', { class: 'sub' }, sub(n)),
+                h('span', { class: 'sub' }, ctrl.sub(n)),
               ]),
           h('button', {
             class: 'eye',
@@ -186,7 +74,7 @@ const GroupList = {
             onClick: (e) => { e.stopPropagation(); store.toggleVisible(n) },
           }, store.hidden.has(n) ? '◌' : '◉'),
           h('div', { class: 'acts' }, [
-            h('button', { title: '重命名', onClick: (e) => { e.stopPropagation(); startEdit(n, n.name) } }, '✎'),
+            h('button', { title: '重命名', onClick: (e) => { e.stopPropagation(); ctrl.startEdit(n, n.name) } }, '✎'),
             h('button', { title: '置顶', onClick: (e) => { e.stopPropagation(); store.moveLayer(n, 'front') } }, '⇈'),
             h('button', { title: '上移', onClick: (e) => { e.stopPropagation(); store.moveLayer(n, 'forward') } }, '▲'),
             h('button', { title: '下移', onClick: (e) => { e.stopPropagation(); store.moveLayer(n, 'backward') } }, '▼'),
@@ -197,7 +85,7 @@ const GroupList = {
             h('button', {
               class: 'del',
               title: isGroup ? '删除分组（成员散到上一层）' : '删除表',
-              onClick: (e) => { e.stopPropagation(); onRemove(n) },
+              onClick: (e) => { e.stopPropagation(); ctrl.onRemove(n) },
             }, '✕'),
           ]),
         ]))
@@ -217,9 +105,9 @@ const GroupList = {
 <template>
   <aside
     class="layers"
-    @mouseleave="onLeave"
-    @dragover="onRootDragOver"
-    @drop="onRootDrop"
+    @mouseleave="ctrl.onLeave()"
+    @dragover="ctrl.onRootDragOver($event)"
+    @drop="ctrl.onRootDrop($event)"
   >
     <header class="layers-head">
       <span>分组</span>
@@ -331,18 +219,14 @@ const GroupList = {
   &:hover {
     background: #f1f4f9;
   }
-
   &.on {
     background: #eef2f7;
-
     &:hover {
       background: #e4ebf4;
     }
   }
-
   &.off {
     opacity: 0.55;
-
     .name {
       text-decoration: line-through;
     }
