@@ -178,11 +178,11 @@ export class InteractionController {
       /* ignore */
     }
     if (this.mode === 'node' && this.moved) {
-      // 拖到另一个图层里松手 = 收编；图层尺寸会跟着成员并集重算
+      // 拖到另一个图层里松手 = 收编；图层几何会跟着成员并集重算。
+      // 不调 focusNode：自动平移/提 zoom 会让画布跳动，破坏放置动作的视觉连续性。
       const t = this.dropTarget()
       if (t) {
         this.store.nestInto(t, this.roots())
-        this.store.focusNode(t)
       }
     } else if (this.mode === 'pan' && !this.moved) {
       // 空白处点一下（没有拖动）= 取消选区。平移只在 moved 时生效，

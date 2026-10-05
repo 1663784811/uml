@@ -220,7 +220,7 @@ const GroupList = {
   position: absolute;
   top: 14px;
   right: 14px;
-  bottom: 62px; // 给右下角缩放控件让出空间
+  bottom: 14px;
   width: 268px;
   z-index: 4;
   display: flex;

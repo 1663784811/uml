@@ -37,25 +37,7 @@
         <div v-if="hoverInfo.fk" class="er-hover-link">FK → <b>{{ hoverInfo.fk }}</b></div>
       </div>
 
-      <div class="er-help">
-        <span><i>拖表</i>移动</span>
-        <span><i>拖到分组</i>收编</span>
-        <span><i>右键拖</i>平移</span>
-        <span><i>左键拖</i>框选</span>
-        <span><i>Shift</i>多选</span>
-        <span><i>Alt</i>对齐吸附</span>
-        <span><i>滚轮</i>缩放</span>
-        <span><i>双击</i>聚焦</span>
-        <span><i>悬停</i>字段详情</span>
-      </div>
-
       <ErLayers />
-
-      <div class="er-zoomer">
-        <button title="缩小" @click="store.zoomTo(store.zoom - 0.15)">−</button>
-        <button title="回到 100%" @click="store.zoomTo(1)">100%</button>
-        <button title="放大" @click="store.zoomTo(store.zoom + 0.15)">＋</button>
-      </div>
     </div>
   </div>
 </template>
@@ -381,75 +363,6 @@ onBeforeUnmount(() => {
   b {
     font-family: ui-monospace, monospace;
     font-weight: 600;
-  }
-}
-
-.er-help {
-  position: absolute;
-  left: 14px;
-  bottom: 14px;
-  display: flex;
-  gap: 14px;
-  padding: 7px 12px;
-  border: 1px solid @line;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.92);
-  color: @mute;
-  font-size: 12px;
-  pointer-events: none;
-  backdrop-filter: blur(6px);
-
-  span {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-  }
-
-  i {
-    padding: 1px 5px;
-    border-radius: 4px;
-    background: #eef1f6;
-    color: @ink;
-    font: 11px/16px ui-monospace, monospace;
-    font-style: normal;
-  }
-}
-
-.er-zoomer {
-  position: absolute;
-  right: 14px;
-  bottom: 14px;
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid @line;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(6px);
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
-
-  button {
-    min-width: 30px;
-    height: 26px;
-    padding: 0 8px;
-    border: 0;
-    border-radius: 5px;
-    background: transparent;
-    color: @ink;
-    font-size: 13px;
-    font-family: ui-monospace, monospace;
-    cursor: pointer;
-    transition: background 0.15s;
-
-    &:hover {
-      background: #eef1f6;
-    }
-
-    &:active {
-      background: #e2e8f0;
-    }
   }
 }
 </style>
