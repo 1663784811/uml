@@ -3,7 +3,7 @@ const EXE = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const browser = await chromium.launch({ executablePath: EXE, args: ['--no-sandbox'] })
 const page = await browser.newPage({ viewport: { width: 1500, height: 900 } })
-await page.goto('http://127.0.0.1:5199')
+await page.goto('http://localhost:5199')
 await sleep(1500)
 
 // Force overflow: add many nodes so the body scrolls
@@ -11,7 +11,7 @@ await page.evaluate(() => {
   const s = window.__STORE__
   const data = [{ type: 'layout', name: 'grp', x: 200, y: 200 }]
   for (let i = 0; i < 40; i++) {
-    data.push({ type: 'table', name: `t_${i}`, parent: 'grp', fields: [{ name: 'id', type: 'bigint' }], x: 250, y: 250 + i * 20 })
+    data.push({ type: 'table', name: `t_${i}`, group: 'grp', fields: [{ name: 'id', type: 'bigint' }], x: 250, y: 250 + i * 20 })
   }
   s.load(data, { layout: false, fit: true })
 })

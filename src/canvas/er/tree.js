@@ -1,4 +1,4 @@
-// 节点树的纯几何/结构不变量：parent 是 name 字符串（表与图层共享命名空间），
+// 节点树的纯几何/结构不变量：group 是 name 字符串（表与图层共享命名空间），
 // 数组顺序即渲染次序。所有结构改动都走「拆成树 -> 改树 -> rewrite 写回」。
 //
 // 这里只操作普通数组，不依赖 Vue 响应式——store 用 reactive([...]) 包住这份数组
@@ -6,19 +6,19 @@
 
 export class Tree {
   /**
-   * @param nodes 普通数组（reactive 代理或原始数组），元素为 { type, name, parent, x, y, w, h, ... }
+   * @param nodes 普通数组（reactive 代理或原始数组），元素为 { type, name, group, x, y, w, h, ... }
    */
   constructor(nodes) {
     this.nodes = nodes
   }
 
-  // 把节点数组按 parent 拆成顶层列表 + 每个父级下的子节点列表
+  // 把节点数组按 group 拆成顶层列表 + 每个图层下的成员列表
   structureOf() {
     const top = []
     const kids = new Map()
     for (const n of this.nodes) {
       if (!n) continue
-      const p = n.parent || null
+      const p = n.group || null
       if (p == null) top.push(n)
       else {
         let l = kids.get(p)
@@ -42,13 +42,13 @@ export class Tree {
       }
     }
     walk(top)
-    // parent 指向已不存在的图层时兜底，否则节点会从画布上消失
+    // group 指向已不存在的图层时兜底，否则节点会从画布上消失
     for (const n of this.nodes) if (!seen.has(n)) { seen.add(n); out.push(n) }
     for (let i = 0; i < out.length; i++) this.nodes[i] = out[i]
     this.nodes.length = out.length
   }
 
-  // 按当前 parent 关系重排数组
+  // 按当前 group 关系重排数组
   rewriteOf() {
     const { top, kids } = this.structureOf()
     this.rewrite(top, kids)
@@ -58,25 +58,25 @@ export class Tree {
   subtreeOf(node) {
     const out = [node]
     const seen = new Set(out)
-    const stack = node.type === 'layout' ? this.nodes.filter((n) => n && n.parent === node.name) : []
+    const stack = node.type === 'layout' ? this.nodes.filter((n) => n && n.group === node.name) : []
     while (stack.length) {
       const n = stack.pop()
       if (seen.has(n)) continue
       seen.add(n)
       out.push(n)
       if (n.type === 'layout') {
-        for (const c of this.nodes.filter((x) => x && x.parent === n.name)) stack.push(c)
+        for (const c of this.nodes.filter((x) => x && x.group === n.name)) stack.push(c)
       }
     }
     return out
   }
 
-  // 父级：只认显式的 parent 字段。
-  // 不按包围关系兜底：拖表进图层时表还没改 parent，几何判定会让它「看起来是成员」，
+  // 所属图层：只认显式的 group 字段。
+  // 不按包围关系兜底：拖表进图层时表还没改 group，几何判定会让它「看起来是成员」，
   // selectionGroup/roots 就把拖拽主体当成别人的成员，dropTarget 永远返回 null
   parentOf(node) {
-    if (!node || !node.parent) return null
-    return this.nodes.find((n) => n.name === node.parent) || null
+    if (!node || !node.group) return null
+    return this.nodes.find((n) => n.name === node.group) || null
   }
 
   // 拖动用的选区：图层展开成整棵子树，成员跟着一起走
@@ -94,7 +94,7 @@ export class Tree {
     return out
   }
 
-  // 名称唯一化：图层与表共用命名空间，parent 靠 name 匹配，撞名会让成员挂错人
+  // 名称唯一化：图层与表共用命名空间，group 靠 name 匹配，撞名会让成员挂错人
   nextName(base, list) {
     const taken = new Set((list || this.nodes).map((n) => n.name))
     const b = String(base || 'untitled')
@@ -106,7 +106,7 @@ export class Tree {
 
   memberCount(node) {
     if (!node || node.type !== 'layout') return 0
-    return this.nodes.filter((n) => n && n.parent === node.name).length
+    return this.nodes.filter((n) => n && n.group === node.name).length
   }
 
   inSubtree(node, items) {

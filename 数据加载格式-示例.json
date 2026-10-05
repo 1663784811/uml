@@ -21,9 +21,13 @@
         "describe": "部门ID",
         "type": "bigint",
         "nullable": true,
-        "targetTable": "t_dept",
-        "targetField": "id",
-        "lineColor": "#999999"
+        "line": [
+          {
+            "table": "t_dept",
+            "field": "id",
+            "color": "#999999"
+          }
+        ]
       }
     ],
     "x": 100,
@@ -31,7 +35,8 @@
     "w": 100,
     "h": 100,
     "bgColor": "#999999",
-    "fontColor": "#000000"
+    "fontColor": "#000000",
+    "group": "layout"
   },
   {
     "type": "table",
@@ -56,16 +61,13 @@
     "w": 100,
     "h": 100,
     "bgColor": "#999999",
-    "fontColor": "#000000"
+    "fontColor": "#000000",
+    "group": "layout"
   },
   {
     "type": "layout",
     "name": "layout",
-    "describe": "图层",
-    "x": 100,
-    "y": 100,
-    "w": 100,
-    "h": 100,
+    "describe": "图层分组",
     "bgColor": "#999999",
     "fontColor": "#000000"
   }

@@ -5,14 +5,14 @@ const browser = await chromium.launch({ executablePath: EXE, args: ['--no-sandbo
 const page = await browser.newPage({ viewport: { width: 1500, height: 900 } })
 page.on('pageerror', (e) => console.log('PAGEERR:', e.message))
 page.on('console', (m) => console.log('CONSOLE:', m.type(), m.text()))
-await page.goto('http://127.0.0.1:5199')
+await page.goto('http://localhost:5199')
 await sleep(1500)
 
 // Start from a clean known state
 await page.evaluate(() => {
   window.__STORE__.load([
     { type: 'layout', name: 'grp', x: 200, y: 200, w: 500, h: 400 },
-    { type: 'table', name: 'users', parent: 'grp', fields: [{ name: 'id', type: 'bigint' }], x: 250, y: 250 },
+    { type: 'table', name: 'users', group: 'grp', fields: [{ name: 'id', type: 'bigint' }], x: 250, y: 250 },
     { type: 'table', name: 'orders', fields: [{ name: 'id', type: 'bigint' }], x: 900, y: 300 },
   ], { layout: false, fit: true })
 })
@@ -29,9 +29,9 @@ const init = await page.evaluate(() => {
   const s = window.__STORE__
   return {
     count: s.nodes.length,
-    top: s.nodes.filter(n => !n.parent).map(n => n.name).sort(),
+    top: s.nodes.filter(n => !n.group).map(n => n.name).sort(),
     grpW: s.nodes.find(n => n.name === 'grp').w,
-    usersParent: s.nodes.find(n => n.name === 'users').parent,
+    usersParent: s.nodes.find(n => n.name === 'users').group,
   }
 })
 check('initial load (3 nodes, correct structure)',
@@ -43,9 +43,9 @@ check('initial load (3 nodes, correct structure)',
 // 2. serialize round-trip
 const rt = await page.evaluate(() => {
   const s = window.__STORE__
-  const a = s.serialize().map(n => `${n.type}:${n.name}:${n.parent || ''}`).sort()
+  const a = s.serialize().map(n => `${n.type}:${n.name}:${n.group || ''}`).sort()
   s.load(s.serialize(), { layout: false, fit: true })
-  const b = s.serialize().map(n => `${n.type}:${n.name}:${n.parent || ''}`).sort()
+  const b = s.serialize().map(n => `${n.type}:${n.name}:${n.group || ''}`).sort()
   return { same: a.join('|') === b.join('|') }
 })
 check('serialize round-trip', rt.same)
@@ -64,7 +64,7 @@ const renameRes = await page.evaluate(() => {
   const s = window.__STORE__
   const n = s.nodes.find(x => x.name === 'users')
   const ok = s.rename(n, 'people')
-  return { ok, newName: s.nodes.find(x => x === n).name, memberParent: s.nodes.filter(x => x.parent === 'people').length }
+  return { ok, newName: s.nodes.find(x => x === n).name, memberParent: s.nodes.filter(x => x.group === 'people').length }
 })
 check('rename (updates members parent)', renameRes.ok && renameRes.newName === 'people' && renameRes.memberParent === 0)
 // Actually users is inside grp, so no children. Test with a layout rename:
@@ -72,7 +72,7 @@ const renLayout = await page.evaluate(() => {
   const s = window.__STORE__
   const lay = s.nodes.find(n => n.name === 'grp')
   const ok = s.rename(lay, 'grp2')
-  return { ok, childParent: s.nodes.find(n => n.name === 'people').parent }
+  return { ok, childParent: s.nodes.find(n => n.name === 'people').group }
 })
 check('rename layout (rewrites children parent)', renLayout.ok && renLayout.childParent === 'grp2')
 
@@ -84,8 +84,8 @@ const nest = await page.evaluate(() => {
   const ok = s.nestInto(lay, [orders])
   return {
     ok,
-    newParent: s.nodes.find(n => n.name === 'orders').parent,
-    grpMembers: s.nodes.filter(n => n.parent === 'new_grp').length,
+    newParent: s.nodes.find(n => n.name === 'orders').group,
+    grpMembers: s.nodes.filter(n => n.group === 'new_grp').length,
   }
 })
 check('nestInto', nest.ok && nest.newParent === 'new_grp' && nest.grpMembers === 1)
@@ -94,7 +94,7 @@ const detach = await page.evaluate(() => {
   const s = window.__STORE__
   const orders = s.nodes.find(n => n.name === 'orders')
   const ok = s.detachToParent([orders])
-  return { ok, newParent: s.nodes.find(n => n.name === 'orders').parent }
+  return { ok, newParent: s.nodes.find(n => n.name === 'orders').group }
 })
 check('detachToParent', detach.ok && detach.newParent === null)
 
@@ -138,9 +138,9 @@ check('moveLayer back', move.ok)
 await page.evaluate(() => {
   window.__STORE__.load([
     { type: 'layout', name: 'L', x: 100, y: 100, w: 400, h: 300 },
-    { type: 'table', name: 'A', parent: 'L', fields: [{ name: 'id', type: 'bigint' }], x: 150, y: 150 },
-    { type: 'table', name: 'B', parent: 'L', fields: [{ name: 'id', type: 'bigint' }], x: 150, y: 220 },
-    { type: 'table', name: 'C', parent: 'L', fields: [{ name: 'id', type: 'bigint' }], x: 150, y: 290 },
+    { type: 'table', name: 'A', group: 'L', fields: [{ name: 'id', type: 'bigint' }], x: 150, y: 150 },
+    { type: 'table', name: 'B', group: 'L', fields: [{ name: 'id', type: 'bigint' }], x: 150, y: 220 },
+    { type: 'table', name: 'C', group: 'L', fields: [{ name: 'id', type: 'bigint' }], x: 150, y: 290 },
   ], { layout: false, fit: true })
 })
 await sleep(200)
@@ -149,9 +149,9 @@ const reorder = await page.evaluate(() => {
   const s = window.__STORE__
   const A = s.nodes.find(n => n.name === 'A')
   const C = s.nodes.find(n => n.name === 'C')
-  const order1 = s.nodes.filter(n => n.parent === 'L').map(n => n.name)
+  const order1 = s.nodes.filter(n => n.group === 'L').map(n => n.name)
   const ok = s.reorder(A, C, 'after')
-  const order2 = s.nodes.filter(n => n.parent === 'L').map(n => n.name)
+  const order2 = s.nodes.filter(n => n.group === 'L').map(n => n.name)
   return { order1, order2, ok }
 })
 check('reorder (moves A after C in L)', reorder.ok && reorder.order2.indexOf('A') === reorder.order2.indexOf('C') + 1)

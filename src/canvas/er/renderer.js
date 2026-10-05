@@ -33,13 +33,14 @@ const MIN_DESC_W = 36
 
 /**
  * 一条 FK 连线：从 from 表的某字段行指向 to 表的某字段行。
- * 由 Renderer 从 nodes 派生，不作为持久数据。
+ * 由 Renderer 从字段的 line 数组派生，不作为持久数据。
+ * color 取自该条 line 自身，独立于其它 line。
  */
 export class Edge {
-  constructor(from, to, field, fromSize, toSize, fromRow, toRow) {
+  constructor(from, to, color, fromSize, toSize, fromRow, toRow) {
     this.from = from
     this.to = to
-    this.field = field
+    this.color = color
     this.fromSize = fromSize
     this.toSize = toSize
     this.fromRow = fromRow
@@ -84,35 +85,57 @@ export class Renderer {
     const idx = new Map(nodes.map((n, i) => [n, i]))
     const key = (n, i) => `${idx.get(n)}:${i}`
 
-    // 一条连线的端点：起点是 FK 字段行，终点是它指向的字段行
+    // 一条连线的端点：起点是 FK 字段行，终点是它指向的字段行。
+    // 一个字段可引出多条线（line 数组），每条各自成一条 Edge，颜色独立。
     const edges = []
     for (const n of nodes) {
       if (n.type !== 'table') continue
       const fields = n.fields || []
       for (let i = 0; i < fields.length; i++) {
         const f = fields[i]
-        if (!f || !f.targetTable) continue
-        const t = byName.get(f.targetTable)
-        if (!t) continue
-        const tr = f.targetField
-          ? (t.fields || []).findIndex((x) => x && x.name === f.targetField)
-          : -1
-        edges.push(new Edge(n, t, f, sizeOf(n), sizeOf(t), i, tr))
+        const lines = Array.isArray(f && f.line) ? f.line : []
+        for (const ln of lines) {
+          if (!ln || !ln.table) continue
+          const t = byName.get(ln.table)
+          if (!t) continue
+          const tr = ln.field
+            ? (t.fields || []).findIndex((x) => x && x.name === ln.field)
+            : -1
+          edges.push(new Edge(n, t, ln.color || null, sizeOf(n), sizeOf(t), i, tr))
+        }
       }
     }
 
     // 悬停字段时它对应的连线一起高亮：悬停在 FK 行或它的目标行上都算。
-    // 行号是表内局部索引，key 必须带节点，否则两个表的第 i 行会互相误命中
+    // 行号是表内局部索引，key 必须带节点，否则两个表的第 i 行会互相误命中。
+    // FK 行可引出多条线，目标行也高亮；反向：悬停在目标行时，所有指向它的 FK 行也高亮
     const hvKey = new Set()
     if (hovered && hovered.row >= 0) {
       hvKey.add(key(hovered.node, hovered.row))
       const f = (hovered.node.fields || [])[hovered.row]
-      if (f && f.targetTable) {
-        const t = byName.get(f.targetTable)
-        const tr = t && f.targetField
-          ? (t.fields || []).findIndex((x) => x && x.name === f.targetField)
+      const lines = Array.isArray(f && f.line) ? f.line : []
+      for (const ln of lines) {
+        if (!ln || !ln.table) continue
+        const t = byName.get(ln.table)
+        const tr = t && ln.field
+          ? (t.fields || []).findIndex((x) => x && x.name === ln.field)
           : -1
         if (tr >= 0) hvKey.add(key(t, tr))
+      }
+      // 反向：悬停在目标行时，把所有指向该行（同表同字段名）的 FK 行也标上
+      for (const n of nodes) {
+        if (n.type !== 'table') continue
+        const fs = n.fields || []
+        for (let i = 0; i < fs.length; i++) {
+          const ls = Array.isArray(fs[i] && fs[i].line) ? fs[i].line : []
+          for (const ln of ls) {
+            if (!ln || ln.table !== hovered.node.name) continue
+            if (ln.field && fs[i] && hovered.node.fields) {
+              const hi = hovered.node.fields.findIndex((x) => x && x.name === ln.field)
+              if (hi === hovered.row) hvKey.add(key(n, i))
+            }
+          }
+        }
       }
     }
     for (const e of edges) {
@@ -187,7 +210,7 @@ export class Renderer {
     const { p0, c1, c2, p1 } = edgeBetween(e.from, e.fromSize, e.to, e.toSize, e.fromRow, e.toRow)
     // 关联行悬停优先于选中色：选中用琥珀，悬停用主题蓝，两者不同色才分得清
     const hot = e.aHovered || e.bHovered
-    const color = hot ? THEME.fieldHoverLine : aSel || bSel ? THEME.selection : e.field.lineColor || THEME.edge
+    const color = hot ? THEME.fieldHoverLine : aSel || bSel ? THEME.selection : e.color || THEME.edge
 
     ctx.save()
     ctx.strokeStyle = color
@@ -322,13 +345,14 @@ export class Renderer {
       ctx.font = FONT_12
       ctx.fillStyle = isHv ? THEME.fieldHoverType : THEME.type
       // 外键徽标靠 type 列右端对齐，所以有徽标时文字宽度要让出 BADGE_PAD
-      const typeW = f.targetTable ? cols.type.w - BADGE_W - 6 : cols.type.w
+      const hasFk = Array.isArray(f.line) && f.line.length > 0
+      const typeW = hasFk ? cols.type.w - BADGE_W - 6 : cols.type.w
       ctx.fillText(ellipsize(f.type, typeW - 1, FONT_12), tx, cy)
 
       ctx.fillStyle = isHv ? THEME.fieldHoverText : THEME.text
       ctx.fillText(ellipsize(describeOf(f), cols.desc.w, FONT_12), dx, cy)
 
-      if (f.targetTable) this.drawBadge(tx + cols.type.w - BADGE_W, cy, 'FK')
+      if (hasFk) this.drawBadge(tx + cols.type.w - BADGE_W, cy, 'FK')
     }
     ctx.restore()
 

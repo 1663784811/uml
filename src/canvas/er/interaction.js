@@ -49,7 +49,7 @@ export class InteractionController {
     cy /= r.length
     for (let i = this.store.nodes.length - 1; i >= 0; i--) {
       const n = this.store.nodes[i]
-      if (n.type !== 'layout' || n.parent) continue
+      if (n.type !== 'layout' || n.group) continue
       if (r.includes(n) || this.store.subtreeOf(n).some((x) => r.includes(x))) continue
       if (cx >= n.x && cx <= n.x + n.w && cy >= n.y && cy <= n.y + n.h) return n
     }
@@ -143,10 +143,14 @@ export class InteractionController {
       const dx = (e.clientX - this.start.cx) / this.store.zoom
       const dy = (e.clientY - this.start.cy) / this.store.zoom
       const snap = e.altKey ? SNAP : 0
+      // 跳过 layout 自身：它的 x/y 由 syncLayoutBounds 从成员重算，直接写会被覆盖
       for (const [n, o] of this.start.group) {
+        if (n.type === 'layout') continue
         n.x = Math.round((o.x + dx) / (snap || 1)) * (snap || 1)
         n.y = Math.round((o.y + dy) / (snap || 1)) * (snap || 1)
       }
+      // 拖动期间实时重算图层框，否则框停在原地视觉断裂
+      this.store.syncLayouts()
       this.store.setDropTarget(this.moved ? this.dropTarget() : null)
     } else if (this.mode === 'pan') {
       this.store.pan.x = this.start.pan.x + (e.clientX - this.start.cx)

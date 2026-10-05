@@ -116,7 +116,7 @@ export function measureTable(node) {
     nameW = Math.max(nameW, textW(f.name, FONT_12_B))
     typeW = Math.max(typeW, textW(f.type, FONT_12))
     descW = Math.max(descW, textW(describeOf(f), FONT_12))
-    if (f.targetTable) hasFk = true
+    if (Array.isArray(f.line) && f.line.length > 0) hasFk = true
   }
   // 可空状态走最左侧 KEY_W 通道（已有固定宽度），不需要额外预留；
   // 只有 type 列存在外键时要为 FK 徽标留位，否则徽标会压住类型文字。
@@ -131,14 +131,14 @@ export function measureTable(node) {
 const _sizeCache = new WeakMap()
 
 // 递归取一个图层的所有后代表节点（含中间层 layout）。
-// 归属写在表的 parent 字段上，指向 layout 的 name；seen 防 parent 环导致死循环
+// 归属写在节点的 group 字段上，指向 layout 的 name；seen 防 group 环导致死循环
 export function membersOf(nodes, layout) {
   const list = Array.isArray(nodes) ? nodes : []
   const out = []
   const seen = new Set()
-  const walk = (parentName) => {
+  const walk = (groupName) => {
     for (const n of list) {
-      if (!n || n.parent !== parentName || seen.has(n)) continue
+      if (!n || n.group !== groupName || seen.has(n)) continue
       seen.add(n)
       out.push(n)
       if (n.type === 'layout') walk(n.name)
@@ -148,32 +148,39 @@ export function membersOf(nodes, layout) {
   return out
 }
 
-// 图层的几何：x/y 是用户拖动决定的，这里不动。
-// 宽高 = 成员并集 + 内边距，紧跟成员实时变化（PS 分组语义）：
-// 成员被拖出就缩回，被拖进就撑开。空图层落到最小尺寸。
-// 成员并集按相对图层原点算，所以无论图层被挪到哪，撑开的量都一样。
+// 图层的几何完全由成员并集派生。x 取成员最小 x 减内边距（框左侧紧贴成员）；
+// y 取成员最小 y 减去标签条高度与内边距——顶部要容下标签条（LABEL_H），
+// 否则成员表头会落进标签条里、文字重叠。底部只需 PAD_INNER。
+// w/h 取成员并集 + 内边距；空图层无成员，落到 (0,0) + 最小尺寸。
+// 成员被拖出就缩回、被拖进就撑开（PS 分组语义）；框永远跟着成员走，不被用户直接拖动。
 export function layoutBounds(nodes, layout) {
-  const x = layout.x || 0
-  const y = layout.y || 0
   const mem = membersOf(nodes, layout)
-  let right = 0
-  let bottom = 0
+  if (!mem.length) return { x: 0, y: 0, w: MIN_LAYOUT_W, h: MIN_LAYOUT_H }
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
   for (const m of mem) {
     const s = sizeOf(m, nodes)
-    right = Math.max(right, m.x - x + s.w)
-    bottom = Math.max(bottom, m.y - y + s.h)
+    minX = Math.min(minX, m.x)
+    minY = Math.min(minY, m.y)
+    maxX = Math.max(maxX, m.x + s.w)
+    maxY = Math.max(maxY, m.y + s.h)
   }
   return {
-    x, y,
-    w: Math.max(MIN_LAYOUT_W, right + PAD_INNER * 2),
-    h: Math.max(MIN_LAYOUT_H, bottom + PAD_INNER * 2),
+    x: minX - PAD_INNER,
+    y: minY - LABEL_H - PAD_INNER,
+    w: Math.max(MIN_LAYOUT_W, maxX - minX + PAD_INNER * 2),
+    h: Math.max(MIN_LAYOUT_H, maxY - minY + LABEL_H + PAD_INNER * 2),
   }
 }
 
 // 把推导出的几何写回节点，让 renderer / hitTest / edgeBetween 继续只读 n.x/n.y/n.w/n.h。
-// 图层只写 w/h：x/y 是用户拖动决定的，这里改了会让图层在拖动中往回弹。
+// 图层 x/y/w/h 全部由成员并集派生：成员拖到哪，框跟到哪。
 // 嵌套图层按成员数从小到大写回：外层依赖内层的最终尺寸，
-// 内层先确定后外层的并集才是准的，一次遍历即收敛
+// 内层先确定后外层的并集才是准的，一次遍历即收敛。
+// 写回 lay.x/y 后不平移成员：成员绝对坐标不动，框跳到成员旁边是预期行为，
+// 下次重算 minX 不变 → 收敛不循环。
 export function syncLayoutBounds(nodes) {
   const list = Array.isArray(nodes) ? nodes : []
   for (const n of list) {
@@ -188,6 +195,8 @@ export function syncLayoutBounds(nodes) {
     .sort((a, b) => membersOf(list, a).length - membersOf(list, b).length)
   for (const lay of layouts) {
     const b = layoutBounds(list, lay)
+    lay.x = b.x
+    lay.y = b.y
     lay.w = b.w
     lay.h = b.h
   }

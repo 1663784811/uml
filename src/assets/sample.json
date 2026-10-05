@@ -21,9 +21,13 @@
         "describe": "部门ID",
         "type": "bigint",
         "nullable": true,
-        "targetTable": "t_dept",
-        "targetField": "id",
-        "lineColor": "#999999"
+        "line": [
+          {
+            "table": "t_dept",
+            "field": "id",
+            "color": "#999999"
+          }
+        ]
       }
     ],
     "x": 120,
@@ -31,7 +35,8 @@
     "w": 299,
     "h": 106,
     "bgColor": "#999999",
-    "fontColor": "#000000"
+    "fontColor": "#000000",
+    "group": "layout"
   },
   {
     "type": "table",
@@ -56,7 +61,8 @@
     "w": 264,
     "h": 82,
     "bgColor": "#999999",
-    "fontColor": "#000000"
+    "fontColor": "#000000",
+    "group": "layout"
   },
   {
     "type": "table",
@@ -71,9 +77,22 @@
       },
       {
         "name": "name",
-        "describe": "部门",
+        "describe": "管理员",
         "type": "varchar(50)",
         "nullable": false
+      },
+      {
+        "name": "dept_id",
+        "describe": "部门ID",
+        "type": "bigint",
+        "nullable": true,
+        "line": [
+          {
+            "table": "t_dept",
+            "field": "id",
+            "color": "#999999"
+          }
+        ]
       }
     ],
     "x": -501,
@@ -86,11 +105,7 @@
   {
     "type": "layout",
     "name": "layout",
-    "describe": "分组",
-    "x": 209,
-    "y": -112,
-    "w": 260,
-    "h": 120,
+    "describe": "图层分组",
     "bgColor": "#999999",
     "fontColor": "#000000"
   }

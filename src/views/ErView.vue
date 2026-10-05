@@ -73,7 +73,10 @@ const stageRef = ref(null)
 let act = null
 
 const edgeCount = computed(() =>
-  store.nodes.reduce((n, t) => n + ((t.fields || []).filter((f) => f && f.targetTable).length), 0),
+  store.nodes.reduce(
+    (n, t) => n + (t.fields || []).reduce((m, f) => m + (Array.isArray(f && f.line) ? f.line.length : 0), 0),
+    0,
+  ),
 )
 
 // 悬停态：命中字段行时给出字段详情；表头/图层框/空白为 null
@@ -88,7 +91,9 @@ const hoverInfo = computed(() => {
     type: f.type,
     desc: f.describe,
     nullable: !!f.nullable,
-    fk: f.targetTable ? `${f.targetTable}${f.targetField ? '.' + f.targetField : ''}` : '',
+    fk: Array.isArray(f.line) && f.line.length
+      ? f.line.map((ln) => `${ln.table}${ln.field ? '.' + ln.field : ''}`).join(', ')
+      : '',
   }
 })
 

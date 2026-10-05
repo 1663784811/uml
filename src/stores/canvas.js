@@ -1,8 +1,8 @@
 // 画布状态：节点数据、选区、视图变换（平移/缩放）。
 // 布局与渲染逻辑放在 ../canvas/er 下，store 只负责状态与编排。
-// 分组（内部仍叫 layout）归属写在节点的 parent 字段上（指向所属 layout 的 name），
-// 同一父级下数组顺序即层级次序；所有结构改动都走「拆成树 -> 改树 -> rewrite 写回」，
-// 保证 parent 与数组顺序不打架。
+// 分组（内部仍叫 layout）归属写在节点的 group 字段上（指向所属 layout 的 name），
+// 同一图层下数组顺序即层级次序；所有结构改动都走「拆成树 -> 改树 -> rewrite 写回」，
+// 保证 group 与数组顺序不打架。
 
 import { reactive, ref } from 'vue'
 import { defineStore } from 'pinia'
@@ -107,6 +107,7 @@ export const useCanvasStore = defineStore('canvas', () => {
       autoLayout(list, { maxWidth: Math.max(view.w - PAD_X * 2, 600) })
     } else {
       for (const n of list) {
+        if (n.type !== 'table') continue
         const s = sizeOf(n)
         n.x = n.x || 0
         n.y = n.y || 0
@@ -114,9 +115,12 @@ export const useCanvasStore = defineStore('canvas', () => {
         n.h = s.h
       }
     }
-    // 图层宽高坐标是派生值：按成员并集重算一次，空图层保留数据里给的尺寸
+    // 图层 x/y/w/h 全部由成员并集派生：按成员并集重算一次
     syncLayoutBounds(list)
     for (const n of list) nodes.push(n)
+    // 重排数组：图层排在自己成员之前，hitTest 从后往前找才能先命中成员表而非图层框。
+    // 数据里的节点顺序不保证这一点（layout 可能排在成员之后），必须 rewriteOf 修正。
+    rewriteOf()
     if (opts.fit) {
       pendingFit = fitView
       fitView()
@@ -251,9 +255,9 @@ export const useCanvasStore = defineStore('canvas', () => {
     // 被删的是顶层分组时父级为 null，等于回到顶层
     for (const g of drop) {
       if (g.type !== 'layout') continue
-      const p = g.parent || null
+      const p = g.group || null
       for (const n of nodes) {
-        if (n.parent === g.name) n.parent = p
+        if (n.group === g.name) n.group = p
       }
     }
     const { top, kids } = structureOf()
@@ -399,7 +403,7 @@ export const useCanvasStore = defineStore('canvas', () => {
     } else {
       const k = dir === 'forward' ? i + 1 : i - 1
       if (k < 0 || k >= nodes.length) return
-      if ((nodes[k].parent || null) !== (node.parent || null)) return
+      if ((nodes[k].group || null) !== (node.group || null)) return
       // 后移越过的是自己子树里的成员，等于没动
       if (dir === 'forward' && subtree.includes(nodes[k])) return
       j = k
@@ -411,14 +415,14 @@ export const useCanvasStore = defineStore('canvas', () => {
   }
 
   // 在 target 的父级列表里，把 node 插到 target 的 before/after 位置。
-  // 跨父级时改 node.parent；不能插到自己后代里（那会构成环）。
+  // 跨父级时改 node.group；不能插到自己后代里（那会构成环）。
   // 面板拖拽重排用：整棵子树作为一个块移动，rewrite 会重新 DFS 写回。
   function reorder(node, target, pos) {
     if (!node || !target || node === target) return false
     if (pos !== 'before' && pos !== 'after') return false
     if (subtreeOf(node).includes(target)) return false
-    const newParent = target.parent || null
-    if (node.parent !== newParent) node.parent = newParent
+    const newParent = target.group || null
+    if (node.group !== newParent) node.group = newParent
     const { top, kids } = structureOf()
     const list = newParent == null ? top : (kids.get(newParent) || [])
     const i = list.indexOf(node)
@@ -433,8 +437,8 @@ export const useCanvasStore = defineStore('canvas', () => {
     return true
   }
 
-  // 重命名。图层与表共用命名空间，成员靠 parent 字段里的 name 挂过来，
-  // 改图层名必须把所有成员的 parent 一起改，否则整棵子树会悬空消失。
+  // 重命名。图层与表共用命名空间，成员靠 group 字段里的 name 挂过来，
+  // 改图层名必须把所有成员的 group 一起改，否则整棵子树会悬空消失。
   function rename(node, name) {
     if (!node) return false
     const v = String(name || '').trim()
@@ -443,7 +447,7 @@ export const useCanvasStore = defineStore('canvas', () => {
     // nextName 从 nodes 取名空间，把自己剔除，否则输入原名会自撞
     const final = nextName(v, nodes.filter((n) => n !== node))
     node.name = final
-    for (const n of nodes) if (n.parent === old) n.parent = final
+    for (const n of nodes) if (n.group === old) n.group = final
     selection.delete(node)
     selection.add(node)
     draw()
@@ -465,19 +469,24 @@ export const useCanvasStore = defineStore('canvas', () => {
   // 新建表。放在已有内容下方（图层内则在其内部），避免和已有节点叠在一起
   function addTable(parent, at) {
     const n = { type: 'table', name: nextName('new_table'), fields: [] }
-    n.parent = parent && parent.type === 'layout' ? parent.name : null
+    n.group = parent && parent.type === 'layout' ? parent.name : null
     const s = sizeOf(n)
     n.w = s.w
     n.h = s.h
 
-    if (n.parent) {
-      const sibs = nodes.filter((m) => m.parent === n.parent)
-      // 落在最后一个成员的下方，保证连续新增不会重叠
-      const y = sibs.length
-        ? Math.max(...sibs.map((m) => m.y + (m.h || 0))) + 12
-        : parent.y + LABEL_H + PAD_INNER
-      n.x = Math.round(parent.x + PAD_INNER)
-      n.y = Math.round(y)
+    if (n.group) {
+      const sibs = nodes.filter((m) => m.group === n.group)
+      if (sibs.length) {
+        // 落在最后一个成员的下方，保证连续新增不会重叠
+        const y = Math.max(...sibs.map((m) => m.y + (m.h || 0))) + 12
+        const minX = Math.min(...sibs.map((m) => m.x))
+        n.x = Math.round(minX)
+        n.y = Math.round(y)
+      } else {
+        // 空 layout：成员从图层左上角内侧起步（框随后由 syncLayoutBounds 紧贴成员）
+        n.x = Math.round(PAD_INNER)
+        n.y = Math.round(LABEL_H + PAD_INNER)
+      }
     } else if (at) {
       n.x = Math.round(at.x)
       n.y = Math.round(at.y)
@@ -494,67 +503,45 @@ export const useCanvasStore = defineStore('canvas', () => {
     return n
   }
 
-  // 新建空图层：空图层保留数据里的 x/y/w/h，不跟着成员并集走
+  // 新建空图层：x/y/w/h 全部由 syncLayoutBounds 派生（空图层落 (0,0)+最小尺寸）。
+  // 不再依赖 pan/zoom：空图层在面板里有行可见，有成员后框自动跳到成员附近。
   function addLayout(name) {
-    const n = {
-      type: 'layout',
-      name: nextName(String(name || 'layout')),
-      x: Math.round(-pan.x / zoom.value + 60),
-      y: Math.round(-pan.y / zoom.value + 60),
-      w: MIN_LAYOUT_W,
-      h: MIN_LAYOUT_H,
-    }
+    const n = { type: 'layout', name: nextName(String(name || 'layout')) }
     nodes.push(n)
+    syncLayoutBounds(nodes)
     rewriteOf()
     select(n, false)
     draw()
     return n
   }
 
-  // 收编进图层：改 parent 指向目标图层，同时把成员平移进目标框内。
-  // 不平移的话图层会为了罩住远处的成员撑成大框，整个画布都被吞掉。
+  // 收编进图层：只改 group 指向，不动成员的 x/y/w/h。
+  // 组的几何随后由 syncLayoutBounds 按成员并集派生——成员在哪，框就在哪。
   function nestInto(target, items) {
     if (!target || target.type !== 'layout' || !items.length) return false
     const self = new Set(subtreeOf(target))
     let changed = false
-    const incoming = []
     for (const n of items) {
       if (!n || n === target || self.has(n)) continue
       if (subtreeOf(n).includes(target)) continue // 不能把自己塞进自己的后代
-      if (n.parent === target.name) continue
-      n.parent = target.name
+      if (n.group === target.name) continue
+      n.group = target.name
       changed = true
-      incoming.push(n)
     }
     if (!changed) return false
-    // 把新进来的项整体平移到目标框左上角附近
-    let minX = Infinity
-    let minY = Infinity
-    for (const n of incoming) {
-      minX = Math.min(minX, n.x)
-      minY = Math.min(minY, n.y)
-    }
-    if (Number.isFinite(minX)) {
-      const dx = target.x + PAD_INNER - minX
-      const dy = target.y + PAD_INNER - minY
-      for (const n of incoming) {
-        n.x += dx
-        n.y += dy
-      }
-    }
     syncLayoutBounds(nodes)
     rewriteOf()
     draw()
     return true
   }
 
-  // 退回顶层：清掉 parent，排到顶层末尾
+  // 退回顶层：清掉 group，排到顶层末尾
   function detachToParent(items) {
     if (!items.length) return false
     let changed = false
     for (const n of items) {
-      if (!n || n.parent == null) continue
-      n.parent = null
+      if (!n || n.group == null) continue
+      n.group = null
       changed = true
     }
     if (!changed) return false
@@ -568,6 +555,12 @@ export const useCanvasStore = defineStore('canvas', () => {
   function setDropTarget(n) {
     if (dropTarget === n) return
     dropTarget = n
+    draw()
+  }
+
+  // 公开的几何重算：拖动成员时实时调用，让图层框跟着成员走
+  function syncLayouts() {
+    syncLayoutBounds(nodes)
     draw()
   }
 
@@ -587,6 +580,7 @@ export const useCanvasStore = defineStore('canvas', () => {
     draw,
     bind,
     unbind,
+    syncLayouts,
     toWorld,
     hitTest,
     select,

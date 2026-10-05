@@ -39,7 +39,7 @@ export class LayoutEngine {
     let y = LABEL_H + PAD_INNER
     let rowH = 0
     let count = 0
-    for (const kid of nodes.filter((n) => n && n.parent === root.name)) {
+    for (const kid of nodes.filter((n) => n && n.group === root.name)) {
       const foot = this.placeSubtree(kid, nodes)
       if (count > 0 && x + foot.w > maxWidth) {
         x = PAD_INNER
@@ -53,6 +53,8 @@ export class LayoutEngine {
     }
 
     const b = layoutBounds(nodes, root)
+    root.x = b.x
+    root.y = b.y
     root.w = b.w
     root.h = b.h
     return { w: b.w, h: b.h }
@@ -62,8 +64,8 @@ export class LayoutEngine {
     const { gapX, gapY, margin, maxWidth } = this.opts
     const list = Array.isArray(nodes) ? nodes : []
 
-    // 只有无 parent 的节点参与顶层装箱；有 parent 的由所属图层带进来
-    const roots = list.filter((n) => n && !n.parent)
+    // 只有无 group 的节点参与顶层装箱；有 group 的由所属图层带进来
+    const roots = list.filter((n) => n && !n.group)
 
     let x = margin
     let y = margin

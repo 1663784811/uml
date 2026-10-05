@@ -159,7 +159,7 @@ const GroupList = {
         ]))
         if (isGroup) {
           children.push(h(GroupList, {
-            nodes: store.nodes.filter((x) => x.parent === n.name),
+            nodes: store.nodes.filter((x) => x.group === n.name),
             depth: p.depth + 1,
           }))
         }
@@ -184,7 +184,7 @@ const GroupList = {
     <div class="layers-scroll">
       <div class="layers-body" ref="bodyRef" @scroll="scheduleSync">
         <div v-if="!store.nodes.length" class="layers-empty">暂无节点</div>
-        <GroupList :nodes="store.nodes.filter((n) => !n.parent)" :depth="0" />
+        <GroupList :nodes="store.nodes.filter((n) => !n.group)" :depth="0" />
       </div>
       <div v-show="scroll.visible" class="layers-bar" ref="barRef" @mousedown.prevent="onTrackClick">
         <div
