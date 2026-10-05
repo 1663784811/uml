@@ -1,3 +1,39 @@
+<template>
+  <aside
+      class="layers"
+      @mouseleave="ctrl.onLeave()"
+      @dragover="ctrl.onRootDragOver($event)"
+      @drop="ctrl.onRootDrop($event)"
+  >
+    <header class="layers-head">
+      <span>分组</span>
+      <span class="count">{{ store.nodes.length }}</span>
+    </header>
+    <div class="layers-scroll">
+      <div class="layers-body" ref="bodyRef" @scroll="scheduleSync">
+        <div v-if="!store.nodes.length" class="layers-empty">暂无节点</div>
+        <GroupList :nodes="store.nodes.filter((n) => !n.group)" :depth="0" />
+      </div>
+      <div v-show="scroll.visible" class="layers-bar" ref="barRef" @mousedown.prevent="onTrackClick">
+        <div
+            class="layers-thumb"
+            ref="thumbRef"
+            :class="{ dragging: scroll.dragging }"
+            :style="{
+            height: `${scroll.ratio * 100}%`,
+            top: `${scroll.offset}%`,
+          }"
+            @mousedown="onThumbDown"
+        />
+      </div>
+    </div>
+    <footer class="layers-foot">
+      <button @click="() => store.addLayout('新建分组')">＋ 分组</button>
+      <button @click="() => store.addTable(null)">＋ 表</button>
+    </footer>
+  </aside>
+</template>
+
 <script setup>
 import { h, reactive, ref, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useCanvasStore } from '../stores/canvas.js'
@@ -169,42 +205,6 @@ const GroupList = {
   },
 }
 </script>
-
-<template>
-  <aside
-    class="layers"
-    @mouseleave="ctrl.onLeave()"
-    @dragover="ctrl.onRootDragOver($event)"
-    @drop="ctrl.onRootDrop($event)"
-  >
-    <header class="layers-head">
-      <span>分组</span>
-      <span class="count">{{ store.nodes.length }}</span>
-    </header>
-    <div class="layers-scroll">
-      <div class="layers-body" ref="bodyRef" @scroll="scheduleSync">
-        <div v-if="!store.nodes.length" class="layers-empty">暂无节点</div>
-        <GroupList :nodes="store.nodes.filter((n) => !n.group)" :depth="0" />
-      </div>
-      <div v-show="scroll.visible" class="layers-bar" ref="barRef" @mousedown.prevent="onTrackClick">
-        <div
-          class="layers-thumb"
-          ref="thumbRef"
-          :class="{ dragging: scroll.dragging }"
-          :style="{
-            height: `${scroll.ratio * 100}%`,
-            top: `${scroll.offset}%`,
-          }"
-          @mousedown="onThumbDown"
-        />
-      </div>
-    </div>
-    <footer class="layers-foot">
-      <button @click="() => store.addLayout('新建分组')">＋ 分组</button>
-      <button @click="() => store.addTable(null)">＋ 表</button>
-    </footer>
-  </aside>
-</template>
 
 <style lang="less" scoped>
 @brand: #4a7ebb;
