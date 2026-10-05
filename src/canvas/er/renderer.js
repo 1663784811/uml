@@ -221,7 +221,7 @@ export class Renderer {
     ctx.moveTo(p0[0], p0[1])
     ctx.bezierCurveTo(c1[0], c1[1], c2[0], c2[1], p1[0], p1[1])
     ctx.stroke()
-    // 鸦爪方向取起点切线（p0→c1），因为控制点沿边法线延伸，切线即贴边方向
+    // 鸦爪方向取起点切线（p0→c1），因为控制点沿连线轴向延伸，p0→c1 就是出边方向
     this.drawCrown(p0, c1, color)
     ctx.restore()
   }

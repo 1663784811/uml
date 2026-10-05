@@ -248,8 +248,3 @@ export function rowCenterY(size, row) {
   return HEADER_H + row * FIELD_H + FIELD_H / 2
 }
 
-// 第 row 行字段名所在的水平中心（垂直连线的水平锚点）
-export function rowAnchorX(size, row) {
-  if (row == null || row < 0 || row >= (size.rows || 0)) return (size.w || 0) / 2
-  return PAD_L + KEY_W + COL_GAP + (size.nameW || 0) / 2
-}
