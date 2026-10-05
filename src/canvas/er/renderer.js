@@ -72,11 +72,13 @@ export class Renderer {
     ctx.fillStyle = THEME.bg
     ctx.fillRect(0, 0, cssW, cssH)
 
+    // 坐标网格：屏幕坐标下固定间距，随 pan 平移。必须在下面的 translate/scale
+    // 之前画，否则坐标会被二次变换，导致虚线偏移、铺不满画布。
+    this.drawGrid(pan, cssW, cssH)
+
     ctx.save()
     ctx.translate(pan.x, pan.y)
     ctx.scale(zoom, zoom)
-
-    this.drawGrid(pan, zoom, cssW, cssH)
 
     const byName = new Map(nodes.map((n) => [n.name, n]))
     const idx = new Map(nodes.map((n, i) => [n, i]))
@@ -142,15 +144,39 @@ export class Renderer {
     this.drawLegend(cssW, cssH)
   }
 
-  drawGrid(pan, zoom, cssW, cssH) {
+  // 坐标网格：屏幕坐标下固定间距，与 zoom 无关。缩放时密度不变，
+  // pan 时跟随平移，方便定位节点。主轴虚线 100px，次轴点阵 20px。
+  // 起点用 ((pan % step) + step) % step 处理负数偏移，保证第一根线从视口内开始。
+  drawGrid(pan, cssW, cssH) {
     const ctx = this.ctx
-    const step = THEME.gridStep * zoom
-    if (step < 9) return
-    const startX = ((pan.x % step) + step) % step
-    const startY = ((pan.y % step) + step) % step
+    const step = THEME.gridStep
+    const major = 100
+
+    // 主轴虚线
+    const sxm = ((pan.x % major) + major) % major
+    const sym = ((pan.y % major) + major) % major
+    ctx.save()
+    ctx.strokeStyle = '#c7cfda'
+    ctx.lineWidth = 1
+    ctx.setLineDash([4, 4])
+    ctx.beginPath()
+    for (let x = sxm; x <= cssW; x += major) {
+      ctx.moveTo(x, 0)
+      ctx.lineTo(x, cssH)
+    }
+    for (let y = sym; y <= cssH; y += major) {
+      ctx.moveTo(0, y)
+      ctx.lineTo(cssW, y)
+    }
+    ctx.stroke()
+    ctx.restore()
+
+    // 次轴点阵
+    const sx = ((pan.x % step) + step) % step
+    const sy = ((pan.y % step) + step) % step
     ctx.fillStyle = THEME.gridDot
-    for (let x = startX; x < cssW; x += step) {
-      for (let y = startY; y < cssH; y += step) {
+    for (let x = sx; x < cssW; x += step) {
+      for (let y = sy; y < cssH; y += step) {
         ctx.fillRect(x, y, 1.5, 1.5)
       }
     }

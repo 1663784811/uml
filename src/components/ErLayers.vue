@@ -169,8 +169,49 @@ const GroupList = {
 
 .layers-body {
   flex: 1;
-  overflow-y: auto;
-  padding: 4px;
+  min-height: 0; // flex 子项默认 min-height:auto，不加这条会把 body 撑出容器
+  // 用 scroll 而不是 auto：Chrome/Edge 在 Windows 上默认走 overlay 滚动条，
+  // auto 模式会被浏览器接管成隐藏式，::-webkit-scrollbar 样式全部失效。
+  // scroll 强制经典滚动条，样式才生效；代价是内容不足时也显示轨道。
+  overflow-y: scroll;
+  padding: 4px 0 4px 4px; // 右侧给滚动条留边
+  // 隔离布局与绘制：滚动条 / 内容变化不触发外层重排重绘
+  contain: strict;
+  overscroll-behavior: contain;
+
+  // Firefox：scrollbar-color 不支持 hover 变体，只有当前/轨道两色。
+  // Chrome/Edge 由下面的 ::-webkit-scrollbar 规则接管，本属性可安全忽略
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.55) transparent;
+
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+    margin: 2px 0; // 让 thumb 不顶到容器边缘
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(100, 116, 139, 0.4);
+    border-radius: 4px;
+    // 4px 内缩，让 thumb 视觉宽度 8-4=4px，避免占满轨道显得像实心条
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background: rgba(100, 116, 139, 0.85);
+  }
+
+  &::-webkit-scrollbar-thumb:active {
+    background: rgba(74, 126, 187, 0.9);
+  }
+
+  &::-webkit-scrollbar-thumb:disabled {
+    background: rgba(100, 116, 139, 0.15);
+  }
 }
 
 .layers-foot {

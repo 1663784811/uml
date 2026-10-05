@@ -9,7 +9,7 @@ import { defineStore } from 'pinia'
 import { autoLayout } from '../canvas/er/layout.js'
 import {
   sizeOf, HEADER_H, FIELD_H, PAD_INNER, LABEL_H, MIN_LAYOUT_W, MIN_LAYOUT_H,
-  membersOf, syncLayoutBounds,
+  syncLayoutBounds,
 } from '../canvas/er/measure.js'
 import { drawScene } from '../canvas/er/renderer.js'
 import { Tree } from '../canvas/er/tree.js'
@@ -227,7 +227,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     for (const n of list) selection.add(n)
   }
 
-
   function deleteSelected() {
     if (!selection.size) return false
     // 分组（layout）像 PS 里的"取消编组"：只删框本身，成员散到顶层；
@@ -299,7 +298,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     pan.y = cy - wy * z1
     draw()
   }
-
 
   // 按节点包围盒居中，不缩放。初始视图用它：100% 是默认值，
   // 缩放只留给用户主动操作（滚轮 / 按钮），不该由载入决定。
@@ -464,8 +462,6 @@ export const useCanvasStore = defineStore('canvas', () => {
 
   // ---------- 增删移动：树的写入操作 ----------
 
-  // 名称唯一化委托给 tree；countMembers 是 memberCount 的重复实现，直接删除。
-
   // 新建表。放在已有内容下方（图层内则在其内部），避免和已有节点叠在一起
   function addTable(parent, at) {
     const n = { type: 'table', name: nextName('new_table'), fields: [] }
@@ -515,8 +511,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     return n
   }
 
-  // 收编进图层：改 parent 指向目标图层，同时把成员平移进目标框内。
-  // 不平移的话图层会为了罩住远处的成员撑成大框，整个画布都被吞掉。
   // 收编进图层：改 parent 指向目标图层，同时把成员平移进目标框内。
   // 不平移的话图层会为了罩住远处的成员撑成大框，整个画布都被吞掉。
   function nestInto(target, items) {
@@ -569,7 +563,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     draw()
     return true
   }
-
 
   // 由 placement 写入：渲染层据此把目标图层描成实线
   function setDropTarget(n) {

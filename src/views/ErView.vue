@@ -144,8 +144,8 @@ function init() {
   act = new InteractionController(store, canvas)
   act.attach()
   window.addEventListener('keydown', onKey)
-  // 不传 fit：初始 100% + 居中，缩放交给用户（滚轮 / 适应按钮）
-  store.load(sampleData, { layout: true })
+  // layout:false 保留 JSON 里作者写好的 x,y；缩放交给用户（滚轮 / 适应按钮）
+  store.load(sampleData, { layout: false })
   if (import.meta.env.DEV) window.__STORE__ = store // 仅开发环境，供调试用
 }
 
