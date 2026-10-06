@@ -80,6 +80,13 @@ export class InteractionController {
     this.start = { cx: e.clientX, cy: e.clientY, pan: { ...this.store.pan } }
     const p = this.store.toWorld(e.clientX, e.clientY)
     this.start.p = p
+    // 先试端口：从圆点按下去是「拖一条新连线」，不是拖动整张表
+    const port = this.store.hitPort(p.x, p.y)
+    if (port) {
+      this.store.setLinkSource(port)
+      this.mode = 'link'
+      return
+    }
     const hit = this.store.hitTest(p.x, p.y)
     const additive = e.shiftKey || e.ctrlKey || e.metaKey
 
@@ -112,6 +119,12 @@ export class InteractionController {
   // 只在值变化时写 style，pointermove 里每帧都会调
   setCursor(clientX, clientY) {
     const p = this.store.toWorld(clientX, clientY)
+    // 端口优先：那是能拖出新连线的地方，光标要明确不一样
+    if (this.store.hitPort(p.x, p.y)) {
+      const next = 'crosshair'
+      if (this.canvas.style.cursor !== next) this.canvas.style.cursor = next
+      return
+    }
     const hit = this.store.hitTest(p.x, p.y)
     const next = hit && hit.row >= 0 ? 'pointer' : hit ? 'move' : 'grab'
     if (this.canvas.style.cursor !== next) this.canvas.style.cursor = next
@@ -137,6 +150,12 @@ export class InteractionController {
 
     if (!this.moved && Math.hypot(e.clientX - this.start.cx, e.clientY - this.start.cy) > 3) {
       this.moved = true
+    }
+
+    if (this.mode === 'link') {
+      const p = this.store.toWorld(e.clientX, e.clientY)
+      this.store.setLinkCursor(p.x, p.y)
+      return
     }
 
     if (this.mode === 'node') {
@@ -180,7 +199,23 @@ export class InteractionController {
     } catch {
       /* ignore */
     }
-    if (this.mode === 'node' && this.moved) {
+    if (this.mode === 'link') {
+      // 光标落在某个表体的字段行上才算一次有效连接
+      const p = this.store.toWorld(e.clientX, e.clientY)
+      const drop = this.store.hitPort(p.x, p.y)
+      if (drop && drop.row >= 0) {
+        this.store.finishLink({ node: drop.node, row: drop.row })
+      } else {
+        // 没有点中任何端口：退一步，用表体命中算出所在的字段行
+        const hit = this.store.hitTest(p.x, p.y)
+        if (hit && hit.row >= 0) {
+          this.store.finishLink({ node: hit.node, row: hit.row })
+        } else {
+          this.store.cancelLink()
+        }
+      }
+      this.store.draw()
+    } else if (this.mode === 'node' && this.moved) {
       // 拖到另一个图层里松手 = 收编；图层几何会跟着成员并集重算。
       // 不调 focusNode：自动平移/提 zoom 会让画布跳动，破坏放置动作的视觉连续性。
       const t = this.dropTarget()

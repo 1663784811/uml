@@ -13,6 +13,7 @@ import {
   COL_GAP,
   BADGE_W,
   BADGE_H,
+  PORT_R,
   PAD_L,
   PAD_R,
   RADIUS,
@@ -26,10 +27,20 @@ import {
   sizeOf,
   textColorFor,
   withAlpha,
+  portX,
+  portY,
 } from './measure.js'
 
 // 表头描述的最小可用宽度（约 3 个汉字）：小于此值就整段省略
 const MIN_DESC_W = 36
+// 拖线时控制点的最低伸出量，和 geometry.edgeBetween 里的保持一致
+const MIN_REACH = 40
+// 端口描边宽度：空心端口和连线同粗时读起来像线的一部分
+const PORT_STROKE_W = 2
+// 连线线宽：1.5px 在端口圆点上读不出来，粗到能压住圆点才看得出方向
+const EDGE_W = 2.4
+const EDGE_W_HOVER = 3
+const EDGE_W_SEL = 2.8
 
 /**
  * 一条 FK 连线：从 from 表的某字段行指向 to 表的某字段行。
@@ -37,7 +48,7 @@ const MIN_DESC_W = 36
  * color 取自该条 line 自身，独立于其它 line。
  */
 export class Edge {
-  constructor(from, to, color, fromSize, toSize, fromRow, toRow) {
+  constructor(from, to, color, fromSize, toSize, fromRow, toRow, avoid) {
     this.from = from
     this.to = to
     this.color = color
@@ -45,6 +56,8 @@ export class Edge {
     this.toSize = toSize
     this.fromRow = fromRow
     this.toRow = toRow
+    // 想绕开的其它表（矩形列表）；edgeBetween 用它挑一个穿过最少的偏移
+    this.avoid = avoid || null
     // 悬停高亮：由 render 阶段填入
     this.aHovered = false
     this.bHovered = false
@@ -66,7 +79,7 @@ export class Renderer {
    * @param cssH 视口 CSS 高度
    */
   draw(state, cssW, cssH) {
-    const { dpr, pan, zoom, selection, hovered, dropTarget, nodes } = state
+    const { dpr, pan, zoom, selection, hovered, dropTarget, linkSource, linkCursor, nodes } = state
     const ctx = this.ctx
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -88,6 +101,14 @@ export class Renderer {
     // 一条连线的端点：起点是 FK 字段行，终点是它指向的字段行。
     // 一个字段可引出多条线（line 数组），每条各自成一条 Edge，颜色独立。
     const edges = []
+    // 连线想绕开的不相关表：除两端节点之外的所有 table。edgeBetween 会在若干
+    // 垂直偏移里挑一个让曲线穿过这些表体最少的偏移（优先 0 穿，退而取最少）。
+    // 端点节点本身不算障碍——线必须从它出。端点行的表头/其它行的表体
+    // 在几何上也算穿过，但那只是同表内部的路径，绕开没意义也没用
+    const obstacleRects = nodes.filter((n) => n.type === 'table').map((n) => {
+      const s = sizeOf(n)
+      return { x: n.x, y: n.y, w: s.w, h: s.h, node: n }
+    })
     for (const n of nodes) {
       if (n.type !== 'table') continue
       const fields = n.fields || []
@@ -101,7 +122,7 @@ export class Renderer {
           const tr = ln.field
             ? (t.fields || []).findIndex((x) => x && x.name === ln.field)
             : -1
-          edges.push(new Edge(n, t, ln.color || null, sizeOf(n), sizeOf(t), i, tr))
+          edges.push(new Edge(n, t, ln.color || null, sizeOf(n), sizeOf(t), i, tr, obstacleRects))
         }
       }
     }
@@ -143,24 +164,54 @@ export class Renderer {
       e.bHovered = e.toRow >= 0 && hvKey.has(key(e.to, e.toRow))
     }
 
-    // 外键连线在节点下层，避免压住表格文字
+    // 有连线的字段行 -> 这条线解析后的颜色。端口画成实心并取这个颜色，
+    // 一眼能看出线从哪个圆点长出来。目标行同样算。
+    // 颜色必须和 drawEdge 用同一套规则算，否则悬停/选中时线变色而端口不变，
+    // 会看到颜色接缝
+    const connected = new Map()
+    for (const e of edges) {
+      const hot = e.aHovered || e.bHovered
+      const color = hot ? THEME.fieldHoverLine
+        : selection.has(e.from) || selection.has(e.to) ? THEME.selection
+        : e.color || THEME.edge
+      for (const [node, row] of [[e.from, e.fromRow], [e.to, e.toRow]]) {
+        if (row == null || row < 0) continue
+        let m = connected.get(node)
+        if (!m) connected.set(node, m = new Map())
+        m.set(row, color)
+      }
+    }
+
+    // 五层：图层底 → 表 → 连线 → 端口 → 图层框。
+    // 图层盒比成员表大，如果按数组顺序一趟画，排在后面的图层会盖住表；
+    // 拆成层后表永远在填充之上、虚线框永远可见，成员拖到框外框线也不会断。
+    // 连线要画在表之后：端点在表体两侧的圆点上，压不到表体上才看得出线的起点。
+    // 端口要画在连线之后：圆点压在端点正上方，线像从圆点后面长出来，
+    // 悬停/选中让线变色时也不会把圆点涂花
+    for (const n of nodes) if (n.type === 'layout') this.drawLayoutFill(n, selection.has(n))
+
+    for (const n of nodes) {
+      if (n.type !== 'table') continue
+      const hv = hovered && hovered.node === n ? hovered.row : null
+      this.drawTable(n, sizeOf(n), selection.has(n), hv != null, hv)
+    }
+
     for (const e of edges) {
       this.drawEdge(e, selection.has(e.from), selection.has(e.to))
     }
 
-    // 三层：图层底 → 表 → 图层框。
-    // 图层盒比成员表大，如果按数组顺序一趟画，排在后面的图层会盖住表；
-    // 拆成三层后表永远在填充之上、虚线框永远可见，成员拖到框外框线也不会断
-    for (const n of nodes) if (n.type === 'layout') this.drawLayoutFill(n, selection.has(n))
-
     for (const n of nodes) {
-      const hv = hovered && hovered.node === n ? hovered.row : null
-      if (n.type === 'table') this.drawTable(n, sizeOf(n), selection.has(n), hv != null, hv)
+      if (n.type !== 'table') continue
+      this.drawPorts(n, sizeOf(n), connected.get(n))
     }
 
     for (const n of nodes) if (n.type === 'layout') this.drawLayout(n, selection.has(n), n === dropTarget)
 
     if (dropTarget) this.drawDropHint(dropTarget)
+
+    // 拖线：画在图层框之上，用户才看得到拖到哪里；必须在 restore 之前，
+    // 因为 drawLinkDrag 用 portX/portY 算的世界坐标，restore 之后就退到 dpr 空间了
+    if (linkSource) this.drawLinkDrag(linkSource, linkCursor, nodes)
 
     ctx.restore()
 
@@ -207,44 +258,23 @@ export class Renderer {
 
   drawEdge(e, aSel, bSel) {
     const ctx = this.ctx
-    const { p0, c1, c2, p1 } = edgeBetween(e.from, e.fromSize, e.to, e.toSize, e.fromRow, e.toRow)
+    const { p0, c1, c2, p1 } = edgeBetween(e.from, e.fromSize, e.to, e.toSize, e.fromRow, e.toRow, e.avoid)
     // 关联行悬停优先于选中色：选中用琥珀，悬停用主题蓝，两者不同色才分得清
     const hot = e.aHovered || e.bHovered
     const color = hot ? THEME.fieldHoverLine : aSel || bSel ? THEME.selection : e.color || THEME.edge
 
     ctx.save()
     ctx.strokeStyle = color
-    ctx.lineWidth = hot ? 2.4 : aSel || bSel ? 2 : 1.5
+    ctx.lineWidth = hot ? EDGE_W_HOVER : aSel || bSel ? EDGE_W_SEL : EDGE_W
     ctx.lineJoin = 'round'
     ctx.lineCap = 'round'
     ctx.beginPath()
     ctx.moveTo(p0[0], p0[1])
     ctx.bezierCurveTo(c1[0], c1[1], c2[0], c2[1], p1[0], p1[1])
     ctx.stroke()
-    // 鸦爪方向取起点切线（p0→c1），因为控制点沿连线轴向延伸，p0→c1 就是出边方向
-    this.drawCrown(p0, c1, color)
+    // 方向性靠两端的端口圆点区分：FK 源端（p0）实心，目标端（p1）空心。
+    // 端口层由 drawPorts 画，这里不再画鸦爪/箭头
     ctx.restore()
-  }
-
-  // PK → FK 关系在 FK 侧画鸦爪；单边关系（如 1:1）不画。
-  drawCrown(p, next, color) {
-    const ctx = this.ctx
-    const dx = p[0] - next[0]
-    const dy = p[1] - next[1]
-    const len = Math.hypot(dx, dy) || 1
-    const ux = dx / len
-    const uy = dy / len
-    const L = 9
-    ctx.strokeStyle = color
-    ctx.lineWidth = 1.5
-    ctx.beginPath()
-    ctx.moveTo(p[0], p[1])
-    ctx.lineTo(p[0] + ux * L, p[1] + uy * L)
-    ctx.moveTo(p[0] + ux * L, p[1] + uy * L)
-    ctx.lineTo(p[0] + ux * L - uy * 3.4, p[1] + uy * L + ux * 3.4)
-    ctx.moveTo(p[0] + ux * L, p[1] + uy * L)
-    ctx.lineTo(p[0] + ux * L + uy * 3.4, p[1] + uy * L - ux * 3.4)
-    ctx.stroke()
   }
 
   drawTable(n, s, isSel, isHovered, hoverRow) {
@@ -361,6 +391,99 @@ export class Renderer {
     ctx.lineWidth = isSel ? 2 : 1
     this.roundRect(x + ctx.lineWidth / 2, y + ctx.lineWidth / 2, s.w - ctx.lineWidth, s.h - ctx.lineWidth, r)
     ctx.stroke()
+  }
+
+  // 每个字段行在左右两边各一个圆点。行中心与连线端点共用 portY/portX，
+  // 所以这里画出来的点正好是 geometry 里那条线的锚点
+  drawPorts(n, s, ports) {
+    const rows = s.rows || 0
+    if (!rows) return
+    for (let i = 0; i < rows; i++) {
+      const cy = portY(n, s, i)
+      this.drawPort(portX(n, s, i, false), cy, ports && ports.get(i))
+      this.drawPort(portX(n, s, i, true), cy, ports && ports.get(i))
+    }
+  }
+
+  // 有连线的端口实心，颜色取那条线的颜色，明显更大：实心 = 这条线长在这里。
+  // 没有连线的空心，描边加粗——1.5px 的圈和连线一样细，会显得又小又飘。
+  // 实心额外描一圈白色，把它从连线里抠出来，不然颜色相同就看不出口径
+  drawPort(cx, cy, color) {
+    const ctx = this.ctx
+    const rad = color ? PORT_R + 2.5 : PORT_R
+    ctx.beginPath()
+    ctx.arc(cx, cy, rad, 0, Math.PI * 2)
+    ctx.fillStyle = color || THEME.port
+    ctx.fill()
+    ctx.strokeStyle = color ? THEME.port : THEME.portStroke
+    ctx.lineWidth = PORT_STROKE_W
+    ctx.stroke()
+  }
+
+  // 拖一条新连线时的辅助渲染：虚线从源端口弯到光标，命中到的目标行
+  // 用高亮条 + 实心端口提示「松手就接上这一格」。光标本身不命中端口时
+  // 也能落在表体任意字段行上（interaction 用 hitTest 兜底）。
+  // 目标行按 nodes 数组逆序找，后画的表（图层里的成员）优先。
+  drawLinkDrag(src, cursor, nodes) {
+    const ctx = this.ctx
+    if (!src || !src.node) return
+    const sn = src.node
+    const ss = sizeOf(sn)
+    const sx = portX(sn, ss, src.row, src.side)
+    const sy = portY(sn, ss, src.row)
+
+    if (!cursor) return
+
+    // 命中目标行：先试端口（拖到圆点上），再退回表体
+    let target = null
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const n = nodes[i]
+      if (n.type !== 'table') continue
+      const s2 = sizeOf(n)
+      if (cursor.x < n.x || cursor.x > n.x + s2.w) continue
+      if (cursor.y < n.y || cursor.y > n.y + s2.h) continue
+      const row = Math.floor((cursor.y - n.y - HEADER_H) / FIELD_H)
+      if (row < 0 || row >= (s2.rows || 0)) continue
+      target = { node: n, row, size: s2 }
+      break
+    }
+
+    // 终点吸附：命中目标行就把线收到那个端口圆心上，光标只是示意
+    const tx = target
+      ? portX(target.node, target.size, target.row, cursor.x < sx)
+      : cursor.x
+    const ty = target
+      ? portY(target.node, target.size, target.row)
+      : cursor.y
+
+    const dx = tx - sx
+    const reach = Math.max(MIN_REACH, Math.abs(dx) / 2)
+    const s = dx >= 0 ? 1 : -1
+
+    ctx.save()
+    ctx.strokeStyle = THEME.fieldHoverLine
+    ctx.lineWidth = 1.5
+    ctx.setLineDash([5, 4])
+    ctx.lineCap = 'round'
+    ctx.beginPath()
+    ctx.moveTo(sx, sy)
+    ctx.bezierCurveTo(sx + s * reach, sy, tx - s * reach, ty, tx, ty)
+    ctx.stroke()
+    ctx.setLineDash([])
+
+    // 命中目标行：整行底色 + 两端都画出实心端口，暗示「松手就接上」
+    if (target) {
+      const n = target.node
+      const s2 = target.size
+      const fy = n.y + HEADER_H + target.row * FIELD_H
+      ctx.fillStyle = THEME.fieldHover
+      ctx.fillRect(n.x, fy, s2.w, FIELD_H)
+      ctx.fillStyle = THEME.fieldHoverLine
+      ctx.fillRect(n.x, fy, 3, FIELD_H)
+      this.drawPort(portX(n, s2, target.row, cursor.x < sx), ty, THEME.fieldHoverLine)
+    }
+    this.drawPort(sx, sy, THEME.fieldHoverLine)
+    ctx.restore()
   }
 
   drawBadge(x, cy, label) {

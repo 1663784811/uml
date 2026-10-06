@@ -24,6 +24,11 @@ export const PAD_INNER = 16
 export const MIN_LAYOUT_W = 260
 export const MIN_LAYOUT_H = 120
 
+// 端口：ComfyUI 风格贴在表体两侧的圆点，外键连线的锚点。
+// 圆心落在边框上，一半露在表体外才能读出「插座」的语义；
+// 直径要明显大于连线宽度，否则端口读起来像线的一部分
+export const PORT_R = 5
+
 // 行内徽标（FK）：宽度 + 与文字的间距
 export const BADGE_W = 26
 export const BADGE_H = 15
@@ -61,6 +66,11 @@ export const THEME = {
   fieldHoverLine: '#4a7ebb',
   fieldHoverText: '#0f172a',
   fieldHoverType: '#475569',
+
+  // 端口圆点：描边颜色即表头蓝，填色要同时能压住白色表体与深色表头；
+  // 填白色 + 蓝描边在最常见组合（白底/蓝头）下都读得清
+  port: '#ffffff',
+  portStroke: '#4a7ebb',
 
   edge: '#8492a6',
   selection: '#f59e0b',
@@ -247,4 +257,33 @@ export function rowCenterY(size, row) {
   if (row == null || row < 0 || row >= (size.rows || 0)) return (size.h || 0) / 2
   return HEADER_H + row * FIELD_H + FIELD_H / 2
 }
+
+// 端口圆心的纵向位置：与 rowCenterY 同一条轴，这样连线和圆点永远对得上
+export function portY(n, size, row) {
+  return n.y + rowCenterY(size, row)
+}
+
+// 端口圆心的横向位置：正好落在该行处表体的轮廓上（ComfyUI 风格——
+// 一半在表体内、一半在表体外，读起来是插座而不是表格上的污点）。
+//
+// 直线段就是竖边本身；圆心 y 落进某个圆角时，取该圆角的弧上横坐标：
+// 角心是 (x±r, y+r) 或 (x±r, y+h-r)，弧上某高度处 x = 角心 x ∓ sqrt(r²-dy²)
+export function portX(n, size, row, right) {
+  const r = RADIUS.table
+  const cy = portY(n, size, row)
+  const top = n.y + r
+  const bot = n.y + size.h - r
+  if (cy < top) {
+    const dy = top - cy
+    const off = Math.sqrt(Math.max(0, r * r - dy * dy))
+    return right ? n.x + size.w - r + off : n.x + r - off
+  }
+  if (cy > bot) {
+    const dy = cy - bot
+    const off = Math.sqrt(Math.max(0, r * r - dy * dy))
+    return right ? n.x + size.w - r + off : n.x + r - off
+  }
+  return right ? n.x + size.w : n.x
+}
+
 

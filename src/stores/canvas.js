@@ -9,7 +9,7 @@ import { defineStore } from 'pinia'
 import { autoLayout } from '../canvas/er/layout.js'
 import {
   sizeOf, HEADER_H, FIELD_H, PAD_INNER, LABEL_H, MIN_LAYOUT_W, MIN_LAYOUT_H,
-  syncLayoutBounds,
+  syncLayoutBounds, PORT_R, portX, portY,
 } from '../canvas/er/measure.js'
 import { drawScene } from '../canvas/er/renderer.js'
 import { Tree } from '../canvas/er/tree.js'
@@ -37,6 +37,11 @@ export const useCanvasStore = defineStore('canvas', () => {
 
   // 放置中的目标图层（渲染层把它的边框画成实线，提示「松手就收进来」）
   let dropTarget = null
+
+  // 拖线状态：从某个端口按住开始，光标位置实时跟随。
+  // 不进响应式状态，和 dropTarget 一样只是渲染期的一次性数据
+  let linkSource = null
+  let linkCursor = null
 
   // 绘制句柄不进 store 响应式状态：它们不是数据
   let ctx = null
@@ -145,6 +150,8 @@ export const useCanvasStore = defineStore('canvas', () => {
         selection,
         hovered: hovered.value,
         dropTarget,
+        linkSource,
+        linkCursor,
         nodes: visibleNodes(),
       },
       ctx,
@@ -219,6 +226,69 @@ export const useCanvasStore = defineStore('canvas', () => {
       return { node: n, row: -1 }
     }
     return null
+  }
+
+  // 端口命中：最近的那个圆点，半径按屏幕像素折算回世界坐标，
+  // 这样缩放到很小时圆点依然点得中，放大到很大时也不会误命中相邻行
+  function hitPort(wx, wy) {
+    const vis = visibleNodes()
+    const rad = Math.max(PORT_R * 2, 9 / zoom.value)
+    const r2 = rad * rad
+    let best = null
+    let bestD = Infinity
+    for (const n of vis) {
+      if (n.type !== 'table') continue
+      const s2 = sizeOf(n)
+      for (let i = 0; i < s2.rows; i++) {
+        const cy = portY(n, s2, i)
+        for (const side of [false, true]) {
+          const cx = portX(n, s2, i, side)
+          const d = (cx - wx) * (cx - wx) + (cy - wy) * (cy - wy)
+          if (d <= r2 && d < bestD) {
+            bestD = d
+            best = { node: n, row: i, side, x: cx, y: cy }
+          }
+        }
+      }
+    }
+    return best
+  }
+
+  function setLinkSource(port) {
+    linkSource = port
+    linkCursor = null
+    draw()
+  }
+
+  function setLinkCursor(wx, wy) {
+    if (!linkSource) return
+    linkCursor = { x: wx, y: wy }
+    draw()
+  }
+
+  function cancelLink() {
+    linkSource = null
+    linkCursor = null
+    draw()
+  }
+
+  // 落定一条 FK：from 的某字段 -> to 的某字段
+  // 自环、重复、指向自己都不建立，避免数据里出现没有意义的连线
+  function finishLink(target) {
+    const src = linkSource
+    cancelLink()
+    if (!src || !target) return false
+    if (src.node === target.node && src.row === target.row) return false
+    const f = (src.node.fields || [])[src.row]
+    const t = (target.node.fields || [])[target.row]
+    if (!f || !t) return false
+    if (!Array.isArray(f.line)) f.line = []
+    const exists = f.line.some((ln) => ln && ln.table === target.node.name && ln.field === t.name)
+    if (exists) return false
+    f.line.push({ table: target.node.name, field: t.name })
+    syncLayouts()
+    draw()
+    return true
   }
 
   function select(node, additive) {
@@ -577,6 +647,11 @@ export const useCanvasStore = defineStore('canvas', () => {
     syncLayouts,
     toWorld,
     hitTest,
+    hitPort,
+    setLinkSource,
+    setLinkCursor,
+    cancelLink,
+    finishLink,
     select,
     selectionGroup,
     parentOf,
